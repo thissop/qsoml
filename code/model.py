@@ -1,17 +1,42 @@
-from matplotlib.pylab import zipf
 import tensorflow as tf
-from zmq import OUT_BATCH_SIZE
 import tensorflow_probability as tfp
 from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, PReLU, Input, Reshape, Lambda
 from tensorflow.keras.models import Model
 
-observed_range = [3550, 10400]
+def load_data(data_dir:str):
+    import pandas as pd 
+    import os 
+    import numpy as np
+    from sklearn.model_selection import train_test_split
+    
+    z_df = pd.read_csv(os.path.join(data_dir, 'zdf.csv'))
+    names, zs = z_df['name'].to_numpy(), z_df['z'].to_numpy()
+
+    zs_sorted = []
+
+    Y = []
+
+    for file in os.listdir(data_dir): 
+        if 'zdf' not in file: 
+            spectrum_name = file.split('.')[0]
+            zs_sorted.append(zs[np.argwhere(names==spectrum_name)])
+            y = pd.read_csv(os.path.join(data_dir, file))['y'].to_numpy()
+            Y.append(y/np.median(y))
+
+    y_train, y_test = train_test_split(Y)
+
+    return y_train, y_test
+
+data_dir = ''
+y_train, y_test = load_data(data_dir)
+
+observed_range = [3600, 10300]
 z_range = [1.5, 2.2]
 
 wave_rest_min = observed_range[0] / (1 + z_range[1])  # Compute min rest-frame wavelength
 wave_rest_max = observed_range[1] / (1 + z_range[0]) 
 
-obs_length = 1500
+obs_length = len(y_train[0])
 upsample_factor = 2
 rest_length = upsample_factor*obs_length 
 
@@ -107,3 +132,5 @@ autoencoder = build_autoencoder(input_shape=(obs_length, 1), latent_dim=10)
 
 autoencoder.compile(optimizer='adam', loss='mse')
 autoencoder.summary()
+
+autoencoder.fit(y_train, y_train)
