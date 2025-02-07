@@ -23,12 +23,12 @@ def load_data(data_dir:str):
             y = pd.read_csv(os.path.join(data_dir, file))['y'].to_numpy()
             Y.append(y/np.median(y))
 
-    y_train, y_test = train_test_split(Y)
+    y_train, y_test, z_train, z_test = train_test_split(Y, zs_sorted)
 
-    return y_train, y_test
+    return y_train, y_test, z_train, z_test
 
 data_dir = ''
-y_train, y_test = load_data(data_dir)
+y_train, y_test, z_train, z_test = load_data(data_dir)
 
 observed_range = [3600, 10300]
 z_range = [1.5, 2.2]
@@ -133,4 +133,4 @@ autoencoder = build_autoencoder(input_shape=(obs_length, 1), latent_dim=10)
 autoencoder.compile(optimizer='adam', loss='mse')
 autoencoder.summary()
 
-autoencoder.fit(y_train, y_train)
+history = autoencoder.fit(y_train, y_train, epochs=5, shuffle=True, validation_data=(y_test, y_test))
