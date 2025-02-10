@@ -23,25 +23,27 @@ def load_data(data_dir: str):
     import numpy as np
 
     z_df = pd.read_csv(os.path.join(data_dir, 'zkey.csv'))
-    names = z_df['name'].to_numpy()
-    zs = z_df['z'].to_numpy(dtype=np.float32)  # Cast z to float32
+    z_map = dict(zip(z_df['name'], z_df['z'].astype(np.float32)))  # Dictionary for fast lookup
 
-    zs_sorted, Y = [], []
+    Y, zs_sorted = [], []
 
     for file in os.listdir(data_dir):
-        if 'csv' in file and 'spec' in file:
-            spectrum_name = file.split('.')[0]
-            z_val = zs[np.argwhere(names == spectrum_name)].flatten().astype(np.float32)  # Ensure float32
-            zs_sorted.append(z_val)
+        if file.endswith('.csv') and 'spec' in file:
+            name = file.split('.')[0]
+            if name in z_map:  # Ensure name exists in z_map
+                zs_sorted.append(z_map[name])  # Append scalar instead of array
 
-            spectrum_df = pd.read_csv(os.path.join(data_dir, file))
-            y = spectrum_df['y'].to_numpy(dtype=np.float32)  # Ensure float32
-            Y.append(y / np.median(y))  # Normalize
+                spectrum_df = pd.read_csv(os.path.join(data_dir, file))
+                y = spectrum_df['y'].to_numpy(dtype=np.float32)  # Ensure float32
+                Y.append(y / np.median(y))  # Normalize
+
+    # Convert to proper numpy arrays
+    Y = np.array(Y, dtype=np.float32)
+    zs_sorted = np.array(zs_sorted, dtype=np.float32)  # Ensure 1D array
 
     y_train, y_test, z_train, z_test = train_test_split((Y, zs_sorted))
 
-    # Convert entire dataset in a single step
-    return tuple(map(lambda x: np.array(x, dtype=np.float32), (y_train, y_test, z_train, z_test)))
+    return y_train, y_test, z_train.reshape(-1, 1), z_test.reshape(-1, 1)  # Ensure correct shape
 
 data_dir = '/burg/home/tjk2147/src/GitHub/qsoml/data/csv-batch'
 y_train, y_test, z_train, z_test = load_data(data_dir)
