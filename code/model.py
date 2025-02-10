@@ -16,29 +16,31 @@ def train_test_split(X: tuple, test_prop: float = 0.1):
     
     return tuple(split_data)
 
-def load_data(data_dir:str):
-    import pandas as pd 
-    import os 
+def load_data(data_dir: str):
+    import pandas as pd
+    import os
     import numpy as np
-    
+
     z_df = pd.read_csv(os.path.join(data_dir, 'zkey.csv'))
-    names, zs = z_df['name'].to_numpy(), z_df['z'].to_numpy()
+    names = z_df['name'].to_numpy()
+    zs = z_df['z'].to_numpy(dtype=np.float32)  # Cast z to float32
 
-    zs_sorted = []
-    Y = []
+    zs_sorted, Y = [], []
 
-    for file in os.listdir(data_dir): 
-        if 'csv' in file and 'spec' in file: 
+    for file in os.listdir(data_dir):
+        if 'csv' in file and 'spec' in file:
             spectrum_name = file.split('.')[0]
-            z_val = zs[np.argwhere(names==spectrum_name)].flatten().astype(np.float32) 
+            z_val = zs[np.argwhere(names == spectrum_name)].flatten().astype(np.float32)  # Ensure float32
             zs_sorted.append(z_val)
+
             spectrum_df = pd.read_csv(os.path.join(data_dir, file))
-            y = spectrum_df['y'].to_numpy(dtype=np.float32)
-            Y.append(y/np.median(y))
-    
+            y = spectrum_df['y'].to_numpy(dtype=np.float32)  # Ensure float32
+            Y.append(y / np.median(y))  # Normalize
+
     y_train, y_test, z_train, z_test = train_test_split((Y, zs_sorted))
 
-    return y_train, y_test, z_train, z_test
+    # Convert entire dataset in a single step
+    return tuple(map(lambda x: np.array(x, dtype=np.float32), (y_train, y_test, z_train, z_test)))
 
 data_dir = '/burg/home/tjk2147/src/GitHub/qsoml/data/csv-batch'
 y_train, y_test, z_train, z_test = load_data(data_dir)
