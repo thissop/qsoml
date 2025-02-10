@@ -3,6 +3,7 @@ import tensorflow_probability as tfp
 from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, PReLU, Input, Reshape, Lambda
 from tensorflow.keras.models import Model
 
+def train_test_split(X: tuple, test_prop: float = 0.1): 
     import numpy as np
 
     idx = np.arange(len(X[0]))  
@@ -30,7 +31,8 @@ def load_data(data_dir:str):
         if 'zdf' not in file: 
             spectrum_name = file.split('.')[0]
             zs_sorted.append(zs[np.argwhere(names==spectrum_name)])
-            y = pd.read_csv(os.path.join(data_dir, file))['y'].to_numpy()
+            spectrum_df = pd.read_csv(os.path.join(data_dir, file))
+            y = spectrum_df['y'].to_numpy()
             Y.append(y/np.median(y))
 
     y_train, y_test, z_train, z_test = train_test_split((Y, zs_sorted))
