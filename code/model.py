@@ -156,4 +156,10 @@ autoencoder = build_autoencoder(input_shape=(obs_length, 1), latent_dim=10)
 autoencoder.compile(optimizer='adam', loss='mse')
 autoencoder.summary()
 
-history = autoencoder.fit(y_train, y_train, epochs=5, shuffle=True, validation_data=(y_test, y_test))
+history = autoencoder.fit(
+    [y_train, z_train],  # Pass both the spectrum and redshift
+    y_train,  # Target remains y_train
+    epochs=5,
+    shuffle=True,
+    validation_data=([y_test, z_test], y_test)  # Pass both inputs in validation
+)
