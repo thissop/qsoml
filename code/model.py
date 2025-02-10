@@ -3,13 +3,23 @@ import tensorflow_probability as tfp
 from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, PReLU, Input, Reshape, Lambda
 from tensorflow.keras.models import Model
 
+    import numpy as np
+
+    idx = np.arange(len(X[0]))  
+    np.random.shuffle(idx)
+
+    test_size = int(len(X[0]) * test_prop)  
+    test_idx = idx[:test_size]  
+    train_idx = idx[test_size:]
+
+    return sum([(i[train_idx], i[test_idx]) for i in X], ())
+
 def load_data(data_dir:str):
     import pandas as pd 
     import os 
     import numpy as np
-    from sklearn.model_selection import train_test_split
     
-    z_df = pd.read_csv(os.path.join(data_dir, 'zdf.csv'))
+    z_df = pd.read_csv(os.path.join(data_dir, 'zkey.csv'))
     names, zs = z_df['name'].to_numpy(), z_df['z'].to_numpy()
 
     zs_sorted = []
@@ -23,11 +33,11 @@ def load_data(data_dir:str):
             y = pd.read_csv(os.path.join(data_dir, file))['y'].to_numpy()
             Y.append(y/np.median(y))
 
-    y_train, y_test, z_train, z_test = train_test_split(Y, zs_sorted)
+    y_train, y_test, z_train, z_test = train_test_split((Y, zs_sorted))
 
     return y_train, y_test, z_train, z_test
 
-data_dir = ''
+data_dir = '/burg/home/tjk2147/src/GitHub/qsoml/data/csv-batch'
 y_train, y_test, z_train, z_test = load_data(data_dir)
 
 observed_range = [3600, 10300]
@@ -104,11 +114,11 @@ def build_decoder(latent_dim, output_dim, rest_length):
     x = Dense(1024)(x)
     x = PReLU()(x)
 
-    # Generate Rest-Frame Spectrum
+    # generate rest-frame
     x = Dense(rest_length)(x)
     x = PReLU()(x)
 
-    # Apply Redshift and Interpolation with Lambda
+    # interpolate and downsample
     x = Lambda(transform_spectrum)([x, z])
 
     # Final Reshaping

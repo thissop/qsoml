@@ -1,0 +1,17 @@
+  File "/burg/home/tjk2147/src/GitHub/qsoml/code/model.py", line 2, in <module>
+    import tensorflow_probability as tfp
+  File "/burg/home/tjk2147/.local/lib/python3.11/site-packages/tensorflow_probability/__init__.py", line 22, in <module>
+    from tensorflow_probability.python import *  # pylint: disable=wildcard-import
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/burg/home/tjk2147/.local/lib/python3.11/site-packages/tensorflow_probability/python/__init__.py", line 152, in <module>
+    dir(globals()[pkg_name])  # Forces loading the package from its lazy loader.
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/burg/home/tjk2147/.local/lib/python3.11/site-packages/tensorflow_probability/python/internal/lazy_loader.py", line 60, in __dir__
+    module = self._load()
+             ^^^^^^^^^^^^
+  File "/burg/home/tjk2147/.local/lib/python3.11/site-packages/tensorflow_probability/python/internal/lazy_loader.py", line 40, in _load
+    self._on_first_access()
+  File "/burg/home/tjk2147/.local/lib/python3.11/site-packages/tensorflow_probability/python/__init__.py", line 59, in _validate_tf_environment
+    raise ImportError(
+ImportError: This version of TensorFlow Probability requires TensorFlow version >= 2.18; Detected an installation of version 2.15.0. Please upgrade TensorFlow to proceed.
+
