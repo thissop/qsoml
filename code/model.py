@@ -6,15 +6,16 @@ from tensorflow.keras.models import Model
 def train_test_split(X: tuple, test_prop: float = 0.1):
     import numpy as np
 
-    idx = np.arange(len(X[0]))  
+    n_samples = len(X[0])  # Assume first element determines sample size
+    idx = np.arange(n_samples)  
     np.random.shuffle(idx)
 
-    test_size = int(len(X[0]) * test_prop)  
+    test_size = int(n_samples * test_prop)  
     test_idx, train_idx = idx[:test_size], idx[test_size:]
 
-    split_data = [np.array(data)[train_idx] for data in X] + [np.array(data)[test_idx] for data in X]
+    split_data = tuple(np.array(data)[train_idx] for data in X) +  tuple(np.array(data)[test_idx] for data in X)
     
-    return tuple(split_data)
+    return split_data
 
 def load_data(data_dir: str):
     import pandas as pd
@@ -157,9 +158,9 @@ autoencoder.compile(optimizer='adam', loss='mse')
 autoencoder.summary()
 
 history = autoencoder.fit(
-    [y_train, z_train],  # Pass both the spectrum and redshift
+    [y_train, z_train],  # Ensure both inputs have the same batch size
     y_train,  # Target remains y_train
     epochs=5,
     shuffle=True,
-    validation_data=([y_test, z_test], y_test)  # Pass both inputs in validation
+    validation_data=([y_test, z_test], y_test)  # Validation set must match input format
 )
