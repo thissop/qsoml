@@ -19,3 +19,6 @@
     - [ ] Add weights
     - [ ] Make sure downsampling is working 
     - [ ] Extra time? Other tasks (normalizing flow and custom loss function)
+
+**2/10/2025**
+- Got lots of progress, but having issue with ptxas, likely due to missing CUDA toolkit or incorrect GPU configuration.
