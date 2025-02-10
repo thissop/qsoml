@@ -131,7 +131,7 @@ def build_decoder(latent_dim, output_dim, rest_length):
 
 def build_autoencoder(input_shape, latent_dim:int=10):
     encoder = build_encoder(input_shape)
-    decoder = build_decoder(latent_dim=latent_dim, output_dim=input_shape[0])
+    decoder = build_decoder(latent_dim=latent_dim, output_dim=input_shape[0], rest_length=rest_length)
 
     input_layer = Input(shape=input_shape)
     latent_space = encoder(input_layer)
