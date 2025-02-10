@@ -6,16 +6,26 @@ from tensorflow.keras.models import Model
 def train_test_split(X: tuple, test_prop: float = 0.1):
     import numpy as np
 
-    n_samples = len(X[0])  # Assume first element determines sample size
+    n_samples = len(X[0])  # Get sample size from the first element
     idx = np.arange(n_samples)  
     np.random.shuffle(idx)
 
     test_size = int(n_samples * test_prop)  
     test_idx, train_idx = idx[:test_size], idx[test_size:]
 
-    split_data = tuple(np.array(data)[train_idx] for data in X) +  tuple(np.array(data)[test_idx] for data in X)
-    
-    return split_data
+    # Ensure all splits match the shape of X[0]
+    split_data = []
+    for data in X:
+        data = np.array(data)
+        if len(data.shape) == 1:  # Handle scalars (z values)
+            split_data.append(data[train_idx].reshape(-1, 1))  # Ensure correct shape (N,1)
+            split_data.append(data[test_idx].reshape(-1, 1))
+        else:  # Handle spectra
+            split_data.append(data[train_idx])
+            split_data.append(data[test_idx])
+
+    return tuple(split_data)
+
 
 def load_data(data_dir: str):
     import pandas as pd
@@ -23,27 +33,27 @@ def load_data(data_dir: str):
     import numpy as np
 
     z_df = pd.read_csv(os.path.join(data_dir, 'zkey.csv'))
-    z_map = dict(zip(z_df['name'], z_df['z'].astype(np.float32)))  # Dictionary for fast lookup
+    z_map = dict(zip(z_df['name'], z_df['z'].astype(np.float32)))  # Use a dictionary for fast lookup
 
     Y, zs_sorted = [], []
 
     for file in os.listdir(data_dir):
         if file.endswith('.csv') and 'spec' in file:
             name = file.split('.')[0]
-            if name in z_map:  # Ensure name exists in z_map
-                zs_sorted.append(z_map[name])  # Append scalar instead of array
+            if name in z_map:  # Ensure the spectrum name is valid
+                zs_sorted.append(z_map[name])  # Store scalar, not array
 
                 spectrum_df = pd.read_csv(os.path.join(data_dir, file))
                 y = spectrum_df['y'].to_numpy(dtype=np.float32)  # Ensure float32
                 Y.append(y / np.median(y))  # Normalize
 
-    # Convert to proper numpy arrays
+    # Convert lists to numpy arrays
     Y = np.array(Y, dtype=np.float32)
     zs_sorted = np.array(zs_sorted, dtype=np.float32)  # Ensure 1D array
 
     y_train, y_test, z_train, z_test = train_test_split((Y, zs_sorted))
 
-    return y_train, y_test, z_train.reshape(-1, 1), z_test.reshape(-1, 1)  # Ensure correct shape
+    return y_train, y_test, z_train, z_test  # z_train is already reshaped correctly
 
 data_dir = '/burg/home/tjk2147/src/GitHub/qsoml/data/csv-batch'
 y_train, y_test, z_train, z_test = load_data(data_dir)
@@ -158,6 +168,9 @@ autoencoder = build_autoencoder(input_shape=(obs_length, 1), latent_dim=10)
 
 autoencoder.compile(optimizer='adam', loss='mse')
 autoencoder.summary()
+
+print(f"y_train shape: {y_train.shape}, z_train shape: {z_train.shape}")
+print(f"y_test shape: {y_test.shape}, z_test shape: {z_test.shape}")
 
 history = autoencoder.fit(
     [y_train, z_train],  # Ensure both inputs have the same batch size
