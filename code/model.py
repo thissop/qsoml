@@ -97,9 +97,9 @@ def transform_spectrum(inputs):
     wave_redshifted = wave_rest[None, :] * (1 + z)  # Broadcast for batch
 
     obs_spectrum = tfp.math.batch_interp_rectilinear_nd_grid(
-        x=wave_obs[None, :],  # Target wavelengths
         x_ref=wave_redshifted,  # Redshifted rest-frame wavelengths
         y_ref=rest_spectrum,  # Rest-frame spectra
+        x_target=wave_obs[None, :],  # Target wavelengths
         axis=-1
     )
 
