@@ -25,15 +25,15 @@ def load_data(data_dir:str):
     names, zs = z_df['name'].to_numpy(), z_df['z'].to_numpy()
 
     zs_sorted = []
-
     Y = []
 
     for file in os.listdir(data_dir): 
         if 'csv' in file and 'spec' in file: 
             spectrum_name = file.split('.')[0]
-            zs_sorted.append(zs[np.argwhere(names==spectrum_name)].flatten())
+            z_val = zs[np.argwhere(names==spectrum_name)].flatten().astype(np.float32) 
+            zs_sorted.append(z_val)
             spectrum_df = pd.read_csv(os.path.join(data_dir, file))
-            y = spectrum_df['y'].to_numpy()
+            y = spectrum_df['y'].to_numpy(dtype=np.float32)
             Y.append(y/np.median(y))
     
     y_train, y_test, z_train, z_test = train_test_split((Y, zs_sorted))
