@@ -55,9 +55,13 @@ obs_length = len(y_train[0])
 upsample_factor = 2
 rest_length = upsample_factor*obs_length 
 
-wave_rest = tf.linspace(wave_rest_min, wave_rest_max, num=rest_length)  # Fixed grid
-wave_obs = tf.linspace(observed_range[0], observed_range[1], num=obs_length)
+wave_rest = tf.cast(tf.linspace(tf.constant(wave_rest_min, dtype=tf.float32), 
+                                tf.constant(wave_rest_max, dtype=tf.float32), 
+                                num=rest_length), dtype=tf.float32)
 
+wave_obs = tf.cast(tf.linspace(tf.constant(observed_range[0], dtype=tf.float32), 
+                               tf.constant(observed_range[1], dtype=tf.float32), 
+                               num=obs_length), dtype=tf.float32)
 def build_encoder(input_shape):
     input_layer = Input(shape=input_shape)
 
@@ -96,7 +100,11 @@ def transform_spectrum(inputs):
     Uses global `wave_rest` and `wave_obs` to avoid recomputation.
     """
     rest_spectrum, z = inputs
-    wave_redshifted = wave_rest[None, :] * (1 + z)  # Broadcast for batch
+
+    # Ensure all inputs are float32
+    rest_spectrum = tf.cast(rest_spectrum, dtype=tf.float32)
+    z = tf.cast(z, dtype=tf.float32)
+    wave_redshifted = tf.cast(wave_rest, dtype=tf.float32)[None, :] * (1 + z)
 
     obs_spectrum = tfp.math.batch_interp_rectilinear_nd_grid(
         x=tf.expand_dims(wave_obs, axis=-1),  # Target wavelengths, shape (num_points, 1)
