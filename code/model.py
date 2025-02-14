@@ -26,7 +26,6 @@ def train_test_split(X: tuple, test_prop: float = 0.1):
 
     return tuple(split_data)
 
-
 def load_data(data_dir: str):
     import pandas as pd
     import os
@@ -108,25 +107,54 @@ def build_encoder(input_shape):
     return Model(input_layer, latent_space, name='encoder')
 
 def transform_spectrum(inputs):
-    """
-    Transforms rest-frame spectra to observed-frame spectra via redshifting & interpolation.
-    Uses global `wave_rest` and `wave_obs` to avoid recomputation.
-    """
-    rest_spectrum, z = inputs
+    rest_spectrum, z = inputs  
 
-    # Ensure all inputs are float32
+    # Debugging input shapes
+    tf.print("Rest Spectrum Shape Before Processing:", tf.shape(rest_spectrum))
+    tf.print("Redshift Shape:", tf.shape(z))
+
+    # Ensure correct dtypes
     rest_spectrum = tf.cast(rest_spectrum, dtype=tf.float32)
     z = tf.cast(z, dtype=tf.float32)
-    wave_redshifted = tf.cast(wave_rest, dtype=tf.float32)[None, :] * (1 + z)
+    z = tf.reshape(z, (-1, 1))  
 
+    # Redshift transformation
+    wave_redshifted = tf.expand_dims(wave_rest, axis=0) * (1 + z)
+    wave_redshifted = tf.clip_by_value(wave_redshifted, wave_obs[0], wave_obs[-1])
+
+    # Expand observed wave grid
+    batch_size = tf.shape(rest_spectrum)[0]  
+    wave_obs_expanded = tf.tile(tf.expand_dims(wave_obs, axis=0), [batch_size, 1])
+
+    # Squeeze rest_spectrum to expected shape
+    rest_spectrum = tf.squeeze(rest_spectrum, axis=-1)  
+
+    # Debugging before interpolation
+    tf.print("Wave Redshifted Shape:", tf.shape(wave_redshifted))
+    tf.print("Wave Obs Expanded Shape:", tf.shape(wave_obs_expanded))
+    tf.print("Rest Spectrum Shape Before Interpolation:", tf.shape(rest_spectrum))
+
+    # 🔹 Fix: Ensure proper shape alignment before interpolation
+    rest_spectrum = tf.reshape(rest_spectrum, [batch_size, rest_length])
+    wave_redshifted = tf.reshape(wave_redshifted, [batch_size, rest_length])
+    wave_obs_expanded = tf.reshape(wave_obs_expanded, [batch_size, obs_length])
+
+    # Perform interpolation
     obs_spectrum = tfp.math.batch_interp_rectilinear_nd_grid(
-        x=tf.expand_dims(wave_obs, axis=-1),  # Target wavelengths, shape (num_points, 1)
-        x_grid_points=(wave_redshifted,),  # Redshifted rest-frame wavelengths, tuple required
-        y_ref=rest_spectrum,  # Rest-frame spectra
+        x=wave_obs_expanded,  
+        x_grid_points=(wave_redshifted,),  
+        y_ref=rest_spectrum,  
         axis=-1
     )
 
-    return obs_spectrum
+    # 🔹 Fix: Ensure the final output is (batch_size, obs_length, 1)
+    obs_spectrum = tf.reshape(obs_spectrum, [batch_size, obs_length, 1])
+
+    # Debugging final output shape
+    tf.print("Final Transform Spectrum Output Shape:", tf.shape(obs_spectrum))
+
+    return obs_spectrum  
+
 
 def build_decoder(latent_dim, output_dim, rest_length):
     latent_input = Input(shape=(latent_dim,))
@@ -144,11 +172,11 @@ def build_decoder(latent_dim, output_dim, rest_length):
     x = Dense(rest_length)(x)
     x = PReLU()(x)
 
-    # interpolate and downsample
-    x = Lambda(transform_spectrum)([x, z])
+    # Reshape BEFORE interpolation (batch_size, rest_length)
+    x = Reshape((rest_length, 1))(x)  # ✅ Ensure proper shape for interpolation
 
-    # Final Reshaping
-    x = Reshape((output_dim, 1))(x)  # If necessary, ensure shape is (batch_size, output_dim, 1)
+    # Interpolate & downsample to observed-frame
+    x = Lambda(transform_spectrum)([x, z])  # ✅ Downsample from rest_length → output_dim
 
     return Model([latent_input, z], x, name='decoder')
 
@@ -161,8 +189,23 @@ def build_autoencoder(input_shape, latent_dim:int=10):
     
     z = Input(shape=(1,), name='z')
     reconstructed_output = decoder([latent_space, z])
+    tf.print("Reconstructed Output Shape:", tf.shape(reconstructed_output))
 
     return Model([input_layer, z], reconstructed_output, name='autoencoder')
+
+
+#####
+
+dummy_latent = tf.random.normal((1, 10))  # Example latent vector
+dummy_z = tf.random.normal((1, 1))  # Example redshift
+
+decoder = build_decoder(latent_dim=10, output_dim=obs_length, rest_length=rest_length)
+output = decoder([dummy_latent, dummy_z])
+
+print("Decoder Output Shape:", output.shape) 
+
+##### 
+
 
 autoencoder = build_autoencoder(input_shape=(obs_length, 1), latent_dim=10)
 
@@ -171,6 +214,8 @@ autoencoder.summary()
 
 print(f"y_train shape: {y_train.shape}, z_train shape: {z_train.shape}")
 print(f"y_test shape: {y_test.shape}, z_test shape: {z_test.shape}")
+
+
 
 history = autoencoder.fit(
     [y_train, z_train],  # Ensure both inputs have the same batch size
