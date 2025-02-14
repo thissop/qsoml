@@ -51,7 +51,7 @@ def load_data(data_dir: str):
 
     return y_train, y_test, z_train, z_test
 
-data_dir = '/burg/home/tjk2147/src/GitHub/qsoml/data/csv-batch'
+data_dir = 'data/csv-batch'
 y_train, y_test, z_train, z_test = load_data(data_dir)
 
 observed_range = [3600, 10300]
