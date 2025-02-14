@@ -1,5 +1,3 @@
-
-
 def copy_downloaded(quasar_key:str, old_dir:str, new_dir:str, z_range:tuple): 
     import os 
     from tqdm import tqdm 
