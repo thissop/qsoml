@@ -207,13 +207,13 @@ def build_autoencoder(input_shape, latent_dim:int=10):
 
 #####
 
-dummy_latent = tf.random.normal((1, 10))  # Example latent vector
+'''dummy_latent = tf.random.normal((1, 10))  # Example latent vector
 dummy_z = tf.random.normal((1, 1))  # Example redshift
 
 decoder = build_decoder(latent_dim=10, output_dim=obs_length, rest_length=rest_length)
 output = decoder([dummy_latent, dummy_z])
 
-print("Decoder Output Shape:", output.shape) 
+print("Decoder Output Shape:", output.shape)''' 
 
 ##### 
 
@@ -228,7 +228,52 @@ print(f"y_test shape: {y_test.shape}, z_test shape: {z_test.shape}")
 history = autoencoder.fit(
     [y_train, z_train],  # Ensure both inputs have the same batch size
     y_train,  # Target remains y_train
-    epochs=5,
+    epochs=100,
     shuffle=True,
     validation_data=([y_test, z_test], y_test)  # Validation set must match input format
 )
+
+autoencoder.save_weights('autoencoder_weights.h5')
+
+import os 
+import matplotlib.pyplot as plt 
+
+plot_dir = '/burg/home/tjk2147/src/GitHub/qsoml/figures'
+
+# Generate predictions
+y_pred = autoencoder.predict([y_test, z_test])
+
+# Epoch vs. Loss
+plt.figure(figsize=(8, 4))
+plt.plot(history.history['loss'], label='Train Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss', linestyle='--')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Epoch vs. Loss')
+plt.legend()
+plt.savefig(os.path.join(plot_dir, 'losshistory.png'))
+
+# Epoch vs. MSE
+plt.figure(figsize=(8, 4))
+plt.plot(history.history['mse'], label='Train MSE')
+plt.plot(history.history['val_mse'], label='Validation MSE', linestyle='--')
+plt.xlabel('Epoch')
+plt.ylabel('Mean Squared Error')
+plt.title('Epoch vs. MSE')
+plt.legend()
+plt.savefig(os.path.join(plot_dir, 'msehistory.png'))
+
+num_plots = 3
+
+for i in range(num_plots):
+    fig, ax = plt.subplots(figsize=(6, 3)) 
+    ax.plot(wave_obs.numpy(), y_test[i].flatten(), label='Actual', linewidth=1, color='black')
+    ax.plot(wave_obs.numpy(), y_pred[i].flatten(), label='Predicted', linewidth=1, color='red')
+    ax.set_xlabel('Observed Wavelength')
+    ax.set_ylabel('Normalized Flux')
+    ax.set_title(f'Spectrum Comparison (Test Sample {i})')
+    ax.legend()
+
+    fig.tight_layout()
+    plt.savefig(os.path.join(plot_dir, f'actualpred-{i}.png'))
+
