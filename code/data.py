@@ -62,18 +62,15 @@ def check_data_range(data_dir:str):
 
 #print(check_data_range('data/small-batch'))
 
-def process_data(old_data_dir:str, new_data_dir:str):
+def process_data(old_data_dir:str, new_data_dir:str, max_count:int=1000):
     import os 
     from astropy.io import fits 
     import numpy as np
     from tqdm import tqdm 
-    import matplotlib.pyplot as plt 
-    import smplotlib 
     import pandas as pd
     from scipy import interpolate
 
     count = 0
-
 
     zs = []
     spectrum_names = []
@@ -81,39 +78,43 @@ def process_data(old_data_dir:str, new_data_dir:str):
     for file in tqdm(os.listdir(old_data_dir)): 
         file_path = os.path.join(old_data_dir, file)
 
+        try: 
+            with fits.open(file_path) as hdul: 
+                data = hdul[1].data
+                x = 10**data['loglam']
+                model = data['model']
+                flux = data['flux']
+                z = hdul[2].data['z'][0]
 
-        with fits.open(file_path) as hdul: 
-            data = hdul[1].data
-            x = 10**data['loglam']
-            model = data['model']
-            flux = data['flux']
-            z = hdul[2].data['z'][0]
+                data_min = np.min(x)
 
-            data_min = np.min(x)
+                if data_min >= 3590 and data_min <= 3600 and count<=max_count: 
+                    f = interpolate.interp1d(x, model)
+                    x = np.linspace(3600, 10300, 4500)
+                    y = f(x)
 
-            if data_min >= 3590 and data_min <= 3600 and count<=50: 
-                f = interpolate.interp1d(x, model)
-                x = np.linspace(3600, 10300, 4500)
-                y = f(x)
+                    df = pd.DataFrame()
+                    df['x'] = x 
+                    df['y'] = y 
 
-                df = pd.DataFrame()
-                df['x'] = x 
-                df['y'] = y 
+                    zs.append(z)
+                    spectrum_names.append(file.split('.')[0])
 
-                zs.append(z)
-                spectrum_names.append(file.split('.')[0])
+                    df.to_csv(os.path.join(new_data_dir, file.replace('fits', 'csv')), index=False)
+                    count += 1
 
-                df.to_csv(os.path.join(new_data_dir, file.replace('fits', 'csv')), index=False)
-                count += 1
+                if count>=max_count: 
+                    break
 
-            if count>=50: 
-                break
+                    # Interpolate 
+                    
+                    # In ML Loading: 
+                    # Do Sky Lines
+                    # Divide by Median 
+        except: 
+            continue 
 
-                # Interpolate 
-                
-                # In ML Loading: 
-                # Do Sky Lines
-                # Divide by Median 
+    print('count')
 
     df = pd.DataFrame()
     df['name'] = spectrum_names
