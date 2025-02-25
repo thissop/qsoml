@@ -75,6 +75,109 @@ wave_obs = tf.cast(tf.linspace(tf.constant(observed_range[0], dtype=tf.float32),
                                tf.constant(observed_range[1], dtype=tf.float32), 
                                num=obs_length), dtype=tf.float32)
 
+
+### LOSS FUNCTION RELATED ###
+
+def similarity_loss(latent_vectors, spectra, w_prime, k0=0.5, k1=10):
+    """
+    Computes the similarity loss term:
+    L_sim = 1/N^2 * sum(sigmoid(k1 * (S_ij - k0))) + sum(sigmoid(-k1 * (S_ij - k0)))
+
+    where:
+    S_ij = (||s_i - s_j||^2) / S - (||x'_i - x'_j||^2) / M
+    
+    NOTE FOR MEMORY EFFICIENCY: 
+
+    The similarity_loss function computes all pairwise distances, leading to an O(N²) complexity. This can become very slow for large batch sizes.
+    
+    Fix: Replace the explicit broadcasting with matrix multiplication-based distance computation:
+
+    def pairwise_squared_distances(X):
+        #Efficient computation of pairwise squared distances using dot-product tricks.
+        #Uses ||x_i - x_j||^2 = ||x_i||^2 + ||x_j||^2 - 2 * (x_i . x_j)
+        X_sq = tf.reduce_sum(tf.square(X), axis=-1, keepdims=True)  # ||x_i||^2
+        pairwise_sq_dists = X_sq + tf.transpose(X_sq) - 2 * tf.matmul(X, X, transpose_b=True)
+        return pairwise_sq_dists
+
+    """
+
+    def pairwise_squared_distances(X):
+        #Efficient computation of pairwise squared distances using dot-product tricks.
+        #Uses ||x_i - x_j||^2 = ||x_i||^2 + ||x_j||^2 - 2 * (x_i . x_j)
+        X_sq = tf.reduce_sum(tf.square(X), axis=-1, keepdims=True)  # ||x_i||^2
+        pairwise_sq_dists = X_sq + tf.transpose(X_sq) - 2 * tf.matmul(X, X, transpose_b=True)
+        return pairwise_sq_dists
+
+    batch_size = tf.shape(latent_vectors)[0]
+
+    latent_dists = pairwise_squared_distances(latent_vectors)
+
+    # Compute pairwise spectral distances
+    spectral_dists = pairwise_squared_distances(spectra)
+
+    # Compute pairwise latent distances
+    #latent_dists = tf.reduce_sum(tf.square(tf.expand_dims(latent_vectors, 1) - tf.expand_dims(latent_vectors, 0)), axis=-1)  
+
+    # Compute pairwise spectral distances
+    #spectral_dists = tf.reduce_sum(w_prime * tf.square(tf.expand_dims(spectra, 1) - tf.expand_dims(spectra, 0)), axis=-1)
+
+    # Compute S_ij
+    S_ij = (latent_dists / tf.cast(tf.shape(latent_vectors)[-1], tf.float32)) - (spectral_dists / tf.cast(tf.shape(spectra)[-1], tf.float32))
+
+    # Compute similarity loss using double sigmoid
+    sim_loss = tf.reduce_mean(tf.sigmoid(k1 * (S_ij - k0))) + tf.reduce_mean(tf.sigmoid(-k1 * (S_ij - k0)))
+
+    return sim_loss
+
+def consistency_loss(latent_vectors, latent_augmented, sigma_s=0.1):
+    """
+    Computes the consistency loss term:
+    L_c = 1/N * sum(sigmoid((||s_i - s_aug,i||^2) / (sigma_s^2 * S)) - 0.5)
+
+    where:
+    - s_i: original latent vector
+    - s_aug,i: latent vector of augmented (redshifted) spectrum
+    """
+
+    batch_size = tf.shape(latent_vectors)[0]
+    
+    # Compute pairwise distances in latent space
+    latent_dists = tf.reduce_sum(tf.square(latent_vectors - latent_augmented), axis=-1)
+
+    # Compute consistency loss
+    cons_loss = tf.reduce_mean(tf.sigmoid(latent_dists / (sigma_s**2 * tf.cast(tf.shape(latent_vectors)[-1], tf.float32)))) - 0.5
+
+    return cons_loss
+
+def custom_loss(y_true, y_pred, encoder, w_prime=None):
+    """
+    Custom loss function that dynamically handles training and validation cases.
+    If w_prime is None, assume it should be computed dynamically.
+    """
+    
+    # Fidelity loss (Mean Squared Error)
+    fid_loss = tf.reduce_mean(tf.square(y_true - y_pred))
+    
+    # If w_prime is not provided, assume a filler of ones
+    if w_prime is None:
+        w_prime = tf.ones_like(y_true, dtype=tf.float32)
+    
+    # Compute latent representations
+    latent_vectors = encoder(y_true)
+    latent_augmented = encoder(y_pred)
+
+    # Compute similarity loss
+    sim_loss = similarity_loss(latent_vectors, y_true, w_prime)
+    
+    # Compute consistency loss
+    cons_loss = consistency_loss(latent_vectors, latent_augmented)
+
+    # Total loss
+    total_loss = fid_loss + sim_loss + cons_loss
+    return total_loss
+
+### LOSS FUNCTION RELATED ###
+
 def build_encoder(input_shape):
     input_layer = Input(shape=input_shape)
 
@@ -111,8 +214,8 @@ def transform_spectrum(inputs):
     rest_spectrum, z = inputs  
 
     # Debugging
-    tf.print("Rest Spectrum Shape Before Processing:", tf.shape(rest_spectrum))
-    tf.print("Redshift Shape:", tf.shape(z))
+    #tf.print("Rest Spectrum Shape Before Processing:", tf.shape(rest_spectrum))
+    #tf.print("Redshift Shape:", tf.shape(z))
 
     # Ensure correct dtypes
     rest_spectrum = tf.cast(rest_spectrum, dtype=tf.float32)
@@ -132,9 +235,9 @@ def transform_spectrum(inputs):
     rest_spectrum = tf.squeeze(rest_spectrum, axis=-1)  
 
     # Debugging
-    tf.print("Wave Redshifted Shape:", tf.shape(wave_redshifted))
-    tf.print("Wave Obs Expanded Shape:", tf.shape(wave_obs_expanded))
-    tf.print("Rest Spectrum Shape Before Interpolation:", tf.shape(rest_spectrum))
+    #tf.print("Wave Redshifted Shape:", tf.shape(wave_redshifted))
+    #tf.print("Wave Obs Expanded Shape:", tf.shape(wave_obs_expanded))
+    #tf.print("Rest Spectrum Shape Before Interpolation:", tf.shape(rest_spectrum))
 
     # Fix: Ensure proper shape alignment before interpolation
     # New correct redshift transformation:
@@ -164,7 +267,7 @@ def transform_spectrum(inputs):
     obs_spectrum = tf.reshape(obs_spectrum, [batch_size, obs_length, 1])
 
     # Debugging final output shape
-    tf.print("Final Transform Spectrum Output Shape:", tf.shape(obs_spectrum))
+    #tf.print("Final Transform Spectrum Output Shape:", tf.shape(obs_spectrum))
 
     return obs_spectrum  
 
@@ -201,40 +304,53 @@ def build_autoencoder(input_shape, latent_dim:int=10):
     
     z = Input(shape=(1,), name='z')
     reconstructed_output = decoder([latent_space, z])
-    print("Reconstructed Output Shape (symbolic):", reconstructed_output.shape)
+    #print("Reconstructed Output Shape (symbolic):", reconstructed_output.shape)
 
-    return Model([input_layer, z], reconstructed_output, name='autoencoder')
+    return Model([input_layer, z], reconstructed_output, name='autoencoder'), encoder
 
-#####
+autoencoder, encoder = build_autoencoder(input_shape=(obs_length, 1), latent_dim=10)
 
-'''dummy_latent = tf.random.normal((1, 10))  # Example latent vector
-dummy_z = tf.random.normal((1, 1))  # Example redshift
-
-decoder = build_decoder(latent_dim=10, output_dim=obs_length, rest_length=rest_length)
-output = decoder([dummy_latent, dummy_z])
-
-print("Decoder Output Shape:", output.shape)''' 
-
-##### 
-
-autoencoder = build_autoencoder(input_shape=(obs_length, 1), latent_dim=10)
-
-autoencoder.compile(optimizer='adam', loss='mse')
+autoencoder.compile(optimizer='adam', loss=lambda y_true, y_pred: custom_loss(y_true, y_pred, encoder))
+#autoencoder.compile(optimizer='adam', loss='mse')
 autoencoder.summary()
 
-print(f"y_train shape: {y_train.shape}, z_train shape: {z_train.shape}")
-print(f"y_test shape: {y_test.shape}, z_test shape: {z_test.shape}")
+#print(f"y_train shape: {y_train.shape}, z_train shape: {z_train.shape}")
+#print(f"y_test shape: {y_test.shape}, z_test shape: {z_test.shape}")
 
 history = autoencoder.fit(
     [y_train, z_train],  # Ensure both inputs have the same batch size
     y_train,  # Target remains y_train
-    epochs=100,
+    epochs=10,
     shuffle=True,
     validation_data=([y_test, z_test], y_test)  # Validation set must match input format
 )
 
-autoencoder.save_weights('autoencoder_weights.h5')
+autoencoder.save_weights('/burg/home/tjk2147/src/GitHub/qsoml/autoencoder_weights.h5')
+#autoencoder.save('autoencoder_model')
 
+import os 
+import pandas as pd 
+
+y_pred = autoencoder.predict([y_test, z_test])
+
+history_df = pd.DataFrame()
+history_df['loss'] = history.history['loss']
+history_df['val_loss'] = history.history['val_loss']
+#history_df['mse'] = history.history['mse']
+#history_df['val_mse'] = history.history['val_mse']
+
+history_df.to_csv('/burg/home/tjk2147/src/GitHub/qsoml/history_df.csv', index=False)
+
+
+for i in range(3):
+    prediction_df = pd.DataFrame()
+    prediction_df['wave_obs'] = wave_obs.numpy()
+    prediction_df['y_test'] = y_test[i].flatten()
+    prediction_df['y_pred'] = y_pred[i].flatten()
+
+    prediction_df.to_csv(f'/burg/home/tjk2147/src/GitHub/qsoml/prediction_df_{i}.csv', index=False)
+
+"""
 import os 
 import matplotlib.pyplot as plt 
 
@@ -276,4 +392,4 @@ for i in range(num_plots):
 
     fig.tight_layout()
     plt.savefig(os.path.join(plot_dir, f'actualpred-{i}.png'))
-
+"""
