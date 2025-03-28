@@ -3,6 +3,20 @@ import tensorflow_probability as tfp
 from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, PReLU, Input, Reshape, Lambda
 from tensorflow.keras.models import Model
 
+def sample_delta_z(z_true, z_min=1.5, z_max=2.2, delta_z_max=0.5):
+    import numpy as np
+    z_true = z_true.flatten()
+    z_aug = []
+    for z_i in z_true:
+        valid = False
+        while not valid:
+            delta_z = np.random.uniform(0.0, delta_z_max)
+            z_new = z_i + delta_z
+            if z_min <= z_new <= z_max:
+                valid = True
+        z_aug.append(z_new)
+    return np.array(z_aug, dtype=np.float32).reshape(-1, 1)
+
 def train_test_split(X: tuple, test_prop: float = 0.1):
     import numpy as np
 
@@ -60,7 +74,7 @@ y_train, y_test, z_train, z_test = load_data(data_dir)
 observed_range = [3600, 10300]
 z_range = [1.5, 2.2]
 
-wave_rest_min = observed_range[0] / (1 + z_range[1])  # Compute min rest-frame wavelength
+wave_rest_min = observed_range[0] / (1 + z_range[1])  
 wave_rest_max = observed_range[1] / (1 + z_range[0]) 
 
 obs_length = len(y_train[0])
@@ -108,12 +122,10 @@ def similarity_loss(latent_vectors, spectra, w_prime, k0=0.5, k1=10):
         pairwise_sq_dists = X_sq + tf.transpose(X_sq) - 2 * tf.matmul(X, X, transpose_b=True)
         return pairwise_sq_dists
 
-    batch_size = tf.shape(latent_vectors)[0]
-
     latent_dists = pairwise_squared_distances(latent_vectors)
-
-    # Compute pairwise spectral distances
     spectral_dists = pairwise_squared_distances(spectra)
+
+    #batch_size = tf.shape(latent_vectors)[0]
 
     # Compute pairwise latent distances
     #latent_dists = tf.reduce_sum(tf.square(tf.expand_dims(latent_vectors, 1) - tf.expand_dims(latent_vectors, 0)), axis=-1)  
@@ -131,50 +143,32 @@ def similarity_loss(latent_vectors, spectra, w_prime, k0=0.5, k1=10):
 
 def consistency_loss(latent_vectors, latent_augmented, sigma_s=0.1):
     """
-    Computes the consistency loss term:
-    L_c = 1/N * sum(sigmoid((||s_i - s_aug,i||^2) / (sigma_s^2 * S)) - 0.5)
-
-    where:
-    - s_i: original latent vector
-    - s_aug,i: latent vector of augmented (redshifted) spectrum
+    Computes consistency loss:
+    L_c = 1/N sum(sigmoid(||s_i - s_aug,i||^2 / (sigma_s^2 * S)) - 0.5)
     """
-
-    batch_size = tf.shape(latent_vectors)[0]
-    
-    # Compute pairwise distances in latent space
     latent_dists = tf.reduce_sum(tf.square(latent_vectors - latent_augmented), axis=-1)
+    S = tf.cast(tf.shape(latent_vectors)[-1], tf.float32)
+    L_c = tf.reduce_mean(tf.sigmoid(latent_dists / (sigma_s**2 * S))) - 0.5
+    return L_c
 
-    # Compute consistency loss
-    cons_loss = tf.reduce_mean(tf.sigmoid(latent_dists / (sigma_s**2 * tf.cast(tf.shape(latent_vectors)[-1], tf.float32)))) - 0.5
-
-    return cons_loss
-
-def custom_loss(y_true, y_pred, encoder, w_prime=None):
-    """
-    Custom loss function that dynamically handles training and validation cases.
-    If w_prime is None, assume it should be computed dynamically.
-    """
-    
-    # Fidelity loss (Mean Squared Error)
+def custom_loss(y_true, y_pred, encoder, decoder, z_aug, w_prime=None):
     fid_loss = tf.reduce_mean(tf.square(y_true - y_pred))
-    
-    # If w_prime is not provided, assume a filler of ones
+
     if w_prime is None:
         w_prime = tf.ones_like(y_true, dtype=tf.float32)
-    
-    # Compute latent representations
-    latent_vectors = encoder(y_true)
-    latent_augmented = encoder(y_pred)
 
-    # Compute similarity loss
+    # --- Vectorized latent augmentation ---
+    latent_vectors, latent_augmented = produce_latent_augmented(y_true, encoder, decoder, z_aug)
+
+    # --- Similarity loss ---
     sim_loss = similarity_loss(latent_vectors, y_true, w_prime)
-    
-    # Compute consistency loss
+
+    # --- Consistency loss ---
     cons_loss = consistency_loss(latent_vectors, latent_augmented)
 
-    # Total loss
     total_loss = fid_loss + sim_loss + cons_loss
     return total_loss
+
 
 ### LOSS FUNCTION RELATED ###
 
@@ -213,18 +207,12 @@ def build_encoder(input_shape):
 def transform_spectrum(inputs):
     rest_spectrum, z = inputs  
 
-    # Debugging
-    #tf.print("Rest Spectrum Shape Before Processing:", tf.shape(rest_spectrum))
-    #tf.print("Redshift Shape:", tf.shape(z))
-
-    # Ensure correct dtypes
     rest_spectrum = tf.cast(rest_spectrum, dtype=tf.float32)
     z = tf.cast(z, dtype=tf.float32)
     z = tf.reshape(z, (-1, 1))  
 
     # Redshift transformation
     wave_redshifted = tf.expand_dims(wave_rest, axis=0) * (1 + z)
-    #wave_redshifted = tf.clip_by_value(wave_redshifted, wave_obs[0], wave_obs[-1])
     wave_redshifted = tf.sort(wave_redshifted, axis=-1)
 
     # Expand observed wave grid
@@ -234,23 +222,16 @@ def transform_spectrum(inputs):
     # Squeeze rest_spectrum to expected shape
     rest_spectrum = tf.squeeze(rest_spectrum, axis=-1)  
 
-    # Debugging
-    #tf.print("Wave Redshifted Shape:", tf.shape(wave_redshifted))
-    #tf.print("Wave Obs Expanded Shape:", tf.shape(wave_obs_expanded))
-    #tf.print("Rest Spectrum Shape Before Interpolation:", tf.shape(rest_spectrum))
-
-    # Fix: Ensure proper shape alignment before interpolation
     # New correct redshift transformation:
     batch_size = tf.shape(rest_spectrum)[0]
 
-    # Keep wave_rest fixed (no batch-dependence)
     wave_rest_fixed = wave_rest  # shape: [rest_length]
 
     # Shift observed wavelengths into rest-frame (batch-dependent)
     wave_obs_shifted = tf.expand_dims(wave_obs, axis=0) / (1 + z)  # shape: [batch_size, obs_length]
 
     # Ensure monotonic increasing order
-    wave_obs_shifted = tf.sort(wave_obs_shifted, axis=-1)
+    wave_obs_shifted = tf.sort(wave_obs_shifted, axis=-1) # remove? 
 
     # Prepare rest_spectrum for interpolation
     rest_spectrum = tf.reshape(rest_spectrum, [batch_size, rest_length])
@@ -265,9 +246,6 @@ def transform_spectrum(inputs):
 
     # Final reshape
     obs_spectrum = tf.reshape(obs_spectrum, [batch_size, obs_length, 1])
-
-    # Debugging final output shape
-    #tf.print("Final Transform Spectrum Output Shape:", tf.shape(obs_spectrum))
 
     return obs_spectrum  
 
@@ -304,92 +282,56 @@ def build_autoencoder(input_shape, latent_dim:int=10):
     
     z = Input(shape=(1,), name='z')
     reconstructed_output = decoder([latent_space, z])
-    #print("Reconstructed Output Shape (symbolic):", reconstructed_output.shape)
 
-    return Model([input_layer, z], reconstructed_output, name='autoencoder'), encoder
+    autoencoder = Model([input_layer, z], reconstructed_output, name='autoencoder')
+    return autoencoder, encoder, decoder
 
-autoencoder, encoder = build_autoencoder(input_shape=(obs_length, 1), latent_dim=10)
+autoencoder, encoder, decoder = build_autoencoder(input_shape=(obs_length, 1), latent_dim=10)
+    
+def precompute_z_aug(z_train, num_epochs, z_min=1.5, z_max=2.2, delta_z_max=0.5):
+    '''Following the approach of Liang et al. (2023), we compute delta-z values per epoch for use in the consistency loss. To simplify implementation and avoid subclassing, we precompute all delta-z values in advance, based on the number of epochs and training spectra.'''
+    import numpy as np 
+    z_aug_all = []
+    for _ in range(num_epochs):
+        z_aug_epoch = sample_delta_z(z_train, z_min=z_min, z_max=z_max, delta_z_max=delta_z_max)
+        z_aug_all.append(z_aug_epoch)
+    return np.stack(z_aug_all, axis=0)  # shape: (num_epochs, num_samples, 1)
 
-autoencoder.compile(optimizer='adam', loss=lambda y_true, y_pred: custom_loss(y_true, y_pred, encoder))
-#autoencoder.compile(optimizer='adam', loss='mse')
-autoencoder.summary()
+def produce_latent_augmented(y_true, encoder, decoder, z_aug):
+    """
+    Vectorized computation of (s_i, s_aug,i)
+    """
+    latent_vectors = encoder(y_true)
+    x_aug = decoder([latent_vectors, z_aug])  # redshifted & downsampled
+    latent_augmented = encoder(x_aug)
+    return latent_vectors, latent_augmented
 
-#print(f"y_train shape: {y_train.shape}, z_train shape: {z_train.shape}")
-#print(f"y_test shape: {y_test.shape}, z_test shape: {z_test.shape}")
+num_epochs = 10
+z_aug_all = precompute_z_aug(z_train, num_epochs)
 
-history = autoencoder.fit(
-    [y_train, z_train],  # Ensure both inputs have the same batch size
-    y_train,  # Target remains y_train
-    epochs=10,
-    shuffle=True,
-    validation_data=([y_test, z_test], y_test)  # Validation set must match input format
-)
+all_history = {"loss": [], "val_loss": []}
 
-autoencoder.save_weights('/burg/home/tjk2147/src/GitHub/qsoml/autoencoder_weights.h5')
+for epoch in range(num_epochs):
+    print(f"Epoch {epoch+1}/{num_epochs}")
+    z_aug_epoch = z_aug_all[epoch]
+
+    autoencoder.compile(
+        optimizer='adam',
+        loss=lambda y_true, y_pred: custom_loss(y_true, y_pred, encoder, decoder, z_aug_epoch)
+    )
+
+    history = autoencoder.fit(
+        [y_train, z_train],
+        y_train,
+        epochs=1,
+        shuffle=True,
+        validation_data=([y_test, z_test], y_test)
+    )
+
+    all_history["loss"].extend(history.history["loss"])
+    all_history["val_loss"].extend(history.history["val_loss"])
+
+
+#autoencoder.save_weights('/burg/home/tjk2147/src/GitHub/qsoml/autoencoder_weights.h5')
 #autoencoder.save('autoencoder_model')
 
-import os 
-import pandas as pd 
-
-y_pred = autoencoder.predict([y_test, z_test])
-
-history_df = pd.DataFrame()
-history_df['loss'] = history.history['loss']
-history_df['val_loss'] = history.history['val_loss']
-#history_df['mse'] = history.history['mse']
-#history_df['val_mse'] = history.history['val_mse']
-
-history_df.to_csv('/burg/home/tjk2147/src/GitHub/qsoml/history_df.csv', index=False)
-
-
-for i in range(3):
-    prediction_df = pd.DataFrame()
-    prediction_df['wave_obs'] = wave_obs.numpy()
-    prediction_df['y_test'] = y_test[i].flatten()
-    prediction_df['y_pred'] = y_pred[i].flatten()
-
-    prediction_df.to_csv(f'/burg/home/tjk2147/src/GitHub/qsoml/prediction_df_{i}.csv', index=False)
-
-"""
-import os 
-import matplotlib.pyplot as plt 
-
-plot_dir = '/burg/home/tjk2147/src/GitHub/qsoml/figures'
-
-# Generate predictions
-y_pred = autoencoder.predict([y_test, z_test])
-
-# Epoch vs. Loss
-plt.figure(figsize=(8, 4))
-plt.plot(history.history['loss'], label='Train Loss')
-plt.plot(history.history['val_loss'], label='Validation Loss', linestyle='--')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.title('Epoch vs. Loss')
-plt.legend()
-plt.savefig(os.path.join(plot_dir, 'losshistory.png'))
-
-# Epoch vs. MSE
-plt.figure(figsize=(8, 4))
-plt.plot(history.history['mse'], label='Train MSE')
-plt.plot(history.history['val_mse'], label='Validation MSE', linestyle='--')
-plt.xlabel('Epoch')
-plt.ylabel('Mean Squared Error')
-plt.title('Epoch vs. MSE')
-plt.legend()
-plt.savefig(os.path.join(plot_dir, 'msehistory.png'))
-
-num_plots = 3
-
-for i in range(num_plots):
-    fig, ax = plt.subplots(figsize=(6, 3)) 
-    ax.plot(wave_obs.numpy(), y_test[i].flatten(), label='Actual', linewidth=1, color='black')
-    ax.plot(wave_obs.numpy(), y_pred[i].flatten(), label='Predicted', linewidth=1, color='red')
-    ax.set_xlabel('Observed Wavelength')
-    ax.set_ylabel('Normalized Flux')
-    ax.set_title(f'Spectrum Comparison (Test Sample {i})')
-    ax.legend()
-
-    fig.tight_layout()
-    plt.savefig(os.path.join(plot_dir, f'actualpred-{i}.png'))
-"""

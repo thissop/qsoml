@@ -62,7 +62,7 @@ def check_data_range(data_dir:str):
 
 #print(check_data_range('data/small-batch'))
 
-def process_data(old_data_dir:str, new_data_dir:str, max_count:int=1000):
+def process_data(old_data_dir:str, new_data_dir:str, max_count:int=10000):
     import os 
     from astropy.io import fits 
     import numpy as np
