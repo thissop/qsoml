@@ -4,10 +4,10 @@
 
 ### Tasks
 - [x] Create small data batch. 
-- [ ] Add weights (based on stuff like water lines, etc.)
+- [x] Add weights + proper normalization (based on stuff like water lines, etc.)
 - [ ] Add normalizing flow 
-- [ ] Add downsampling/interpolation layer 
-- [ ] Custom Loss Function
+- [x] Add downsampling/interpolation layer 
+- [x] Custom Loss Function
 
 ### Dated Notes
 
