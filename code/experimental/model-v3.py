@@ -5,7 +5,7 @@ import pandas as pd
 import os
 from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, PReLU, Input, Reshape, Lambda
 from tensorflow.keras.models import Model
-import matplotlib.pyplot as plt 
+#import matplotlib.pyplot as plt 
 
 ### --- Data Loading --- ###
 
@@ -40,6 +40,11 @@ def train_test_split(X: tuple, test_prop: float = 0.1):
     return tuple(split_data)
 
 def load_data(data_dir: str, z_range:list, rest_norm_window:list=[3020, 3100]):
+    r'''
+    
+    Rest Frame Range for Normalization: from COMPOSITE QUASAR SPECTRA FROM THE SLOAN DIGITAL SKY SURVEY (BERK 2001)
+
+    '''
     import numpy as np
     import pandas as pd
     import os
@@ -314,7 +319,7 @@ for epoch in range(num_epochs):
 
 ### PLOT HISTORY OF DECOMPOSED TRAINING LOSS ### 
 
-def plot_loss_components(history):
+"""def plot_loss_components(history):
     epochs = range(1, len(history["loss"]) + 1)
     plt.figure()
     plt.plot(epochs, history["fid_loss"], label="Fidelity Loss")
@@ -330,15 +335,14 @@ def plot_loss_components(history):
     plt.tight_layout()
     plt.savefig('/burg/home/tjk2147/src/GitHub/qsoml/results/plots/history.png')
 
-plot_loss_components(history)
-
+plot_loss_components(history)"""
 
 # Optional save
 # autoencoder.save_weights('spender_weights.h5')
 
 ### INVESTIGATE REST FRAME ###
 
-def plot_rest_frame_spectrum(y_sample, z_sample):
+"""def plot_rest_frame_spectrum(y_sample, z_sample):
     # Prepare inputs
     y_input = tf.expand_dims(y_sample, axis=(0, -1))  # shape (1, obs_length, 1)
     z_input = tf.convert_to_tensor([[z_sample]], dtype=tf.float32)
@@ -362,3 +366,4 @@ def plot_rest_frame_spectrum(y_sample, z_sample):
 
 sample_idx = 0
 plot_rest_frame_spectrum(y_train[sample_idx], z_train[sample_idx][0])
+"""
