@@ -33,21 +33,51 @@ def plot_rest_frame_spectrum(restframe_df_path, plot_dir):
 
     # Prepare inputs
     restframe_df = pd.read_csv(restframe_df_path)
+    print(restframe_df.columns)
     wave_rest = restframe_df['x']
     rest_spectrum = restframe_df['y']
-    z = float(re.search(r'z=([\d\.]+)', restframe_df_path).group(1))
 
     # Plot
     plt.figure()
     plt.plot(wave_rest, rest_spectrum, label='Rest-Frame Reconstruction')
     plt.xlabel('Rest-Frame Wavelength (Å)')
     plt.ylabel('Flux')
-    plt.title(f'Rest-Frame Spectrum (z = {z:.2f})')
     plt.legend()
     plt.tight_layout()
     plt.savefig(os.path.join(plot_dir, f'{os.path.splitext(os.path.basename(restframe_df_path))[0]}.png'))
     plt.close()
 
-#restframe_df_paths = []
-#for restframe_df_path in restframe_df_paths: 
-#    plot_rest_frame_spectrum(restframe_df_path, plot_dir)
+restframe_df_paths = ['results/data-for-plots/data-for-plots/restframe_prediction_1.csv', 
+                      'results/data-for-plots/data-for-plots/restframe_prediction_3.csv',
+                      'results/data-for-plots/data-for-plots/restframe_prediction_10.csv']
+for restframe_df_path in restframe_df_paths:
+    plot_rest_frame_spectrum(restframe_df_path, plot_dir)
+
+def plot_reconstruction(df_path, plot_dir): 
+    import pandas as pd
+    import matplotlib.pyplot as plt 
+    import os  
+    import smplotlib 
+
+    df = pd.read_csv(df_path)
+    x = df['x']
+    y_real = df['y_test']
+    y_predicted = df['y_predicted']
+
+    fig, ax = plt.subplots(figsize=(5, 2))
+
+    ax.plot(x, y_real, label='Flux', color='black')
+    ax.plot(x, y_predicted, label='Reconstructed Flux', color='red')
+    ax.set_xlabel('Observed Wavelength (Å)')
+    ax.set_ylabel('Flux')
+    ax.legend(fontsize='small')
+    fig.tight_layout()
+    plt.savefig(os.path.join(plot_dir, f'{os.path.splitext(os.path.basename(df_path))[0]}.png'))
+    plt.close()
+
+df_paths = ['results/data-for-plots/data-for-plots/test_prediction_1.csv',
+            'results/data-for-plots/data-for-plots/test_prediction_3.csv',
+            'results/data-for-plots/data-for-plots/test_prediction_10.csv']
+
+for df_path in df_paths:
+    plot_reconstruction(df_path, plot_dir)

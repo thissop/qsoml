@@ -275,7 +275,7 @@ autoencoder, encoder, decoder = build_autoencoder(input_shape=(obs_length, 1), l
 # Sub-model to extract restframe spectrum
 decoder_fc = Model(decoder.input, decoder.layers[-2].output)
 
-num_epochs = 20
+num_epochs = 5
 batch_size = 128
 z_aug_all = precompute_z_aug(z_train, num_epochs)
 
@@ -312,7 +312,7 @@ def sample_z_aug_for_val(z_val, delta_z_max=0.5, z_min=1.5, z_max=2.2):
     return sample_delta_z(z_val, z_min=z_min, z_max=z_max, delta_z_max=delta_z_max)
 
 for epoch in range(num_epochs):
-    print(f"\nEpoch {epoch+1}/{num_epochs}")
+    tf.print(f"\nEpoch {epoch+1}/{num_epochs}")
     z_aug_epoch = z_aug_all[epoch]
 
     epoch_fid_loss = []
@@ -342,8 +342,8 @@ for epoch in range(num_epochs):
         epoch_cons_loss.append(cons_loss.numpy())
         epoch_total_loss.append(total_loss.numpy())
 
-        if (i // batch_size + 1) % 25 == 0:
-            print(f"  Batch {i//batch_size + 1}: Fid: {fid_loss.numpy():.4f}, Sim: {sim_loss.numpy():.4f}, Cons: {cons_loss.numpy():.4f}, Total: {total_loss.numpy():.4f}")
+        #if (i // batch_size + 1) % 25 == 0:
+        #    print(f"  Batch {i//batch_size + 1}: Fid: {fid_loss.numpy():.4f}, Sim: {sim_loss.numpy():.4f}, Cons: {cons_loss.numpy():.4f}, Total: {total_loss.numpy():.4f}")
 
     # ---- Modified Validation Loop ----
     val_losses = []
@@ -368,7 +368,7 @@ for epoch in range(num_epochs):
 
     history["val_loss"].append(avg_val_loss)
 
-    print(f"Epoch {epoch+1} Summary → Train Loss: {np.mean(epoch_total_loss):.4f} | Fid: {np.mean(epoch_fid_loss):.4f} | Sim: {np.mean(epoch_sim_loss):.4f} | Cons: {np.mean(epoch_cons_loss):.4f} | Val Loss: {avg_val_loss:.4f}")
+    tf.print(f"Epoch {epoch+1} Summary → Train Loss: {np.mean(epoch_total_loss):.4f} | Fid: {np.mean(epoch_fid_loss):.4f} | Sim: {np.mean(epoch_sim_loss):.4f} | Cons: {np.mean(epoch_cons_loss):.4f} | Val Loss: {avg_val_loss:.4f}")
 
 ### PLOT HISTORY OF DECOMPOSED TRAINING LOSS ### 
 
@@ -397,7 +397,6 @@ def save_rest_frame_data(y_train, z_train, sample_idx, save_dir:str='/burg/home/
     y_sample = y_train[sample_idx]
     z_sample = z_train[sample_idx]
 
-
     y_input = tf.expand_dims(tf.expand_dims(y_sample, axis=0), axis=-1)
     z_input = tf.constant([[z_sample]], dtype=tf.float32)
 
@@ -411,7 +410,33 @@ def save_rest_frame_data(y_train, z_train, sample_idx, save_dir:str='/burg/home/
     restframe_df['x'] = wave_rest
     restframe_df['y'] = rest_spectrum
 
-    restframe_df.to_csv(os.path.join(save_dir, f'restframe_prediction_{sample_idx}-z={z_sample:.2f}.csv'), index=False)
+    print(f'idx: {sample_idx}; z={float(z_sample):.2f}')
+
+    restframe_df.to_csv(os.path.join(save_dir, f'restframe_prediction_{sample_idx}.csv'), index=False)
+
+
+def save_test_prediction(y_test, z_test, sample_idx, save_dir:str='/burg/home/tjk2147/src/GitHub/qsoml/results/data-for-plots'):
+    import os
+    # Prepare inputs
+    y_sample = y_test[sample_idx]
+    z_sample = z_test[sample_idx]
+
+    y_input = tf.expand_dims(tf.expand_dims(y_sample, axis=0), axis=-1)
+    z_input = tf.constant([[z_sample]], dtype=tf.float32)
+
+    # Reconstruct using autoencoder
+    y_pred = autoencoder([y_input, z_input], training=False).numpy().squeeze()
+
+    # Save to CSV
+    predictions_df = pd.DataFrame()
+    predictions_df['x'] = wave_obs
+    predictions_df['y_test'] = y_sample.squeeze()
+    predictions_df['predicted'] = y_pred
+
+    print(f'idx: {sample_idx}; z={float(z_sample):.2f}')
+
+    predictions_df.to_csv(os.path.join(save_dir, f'test_prediction_{sample_idx}.csv'), index=False)
 
 for i in [1, 10, 3, 100, 21]: 
     save_rest_frame_data(y_train, z_train, sample_idx=i)
+    save_test_prediction(y_test, z_test, sample_idx=i)
