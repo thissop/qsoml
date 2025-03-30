@@ -4,7 +4,7 @@ def plot_loss_components(history_df_path, plot_dir):
     import os 
     import pandas as pd 
 
-    history_df = pd.DataFrame(history_df_path)
+    history_df = pd.read_csv(history_df_path)
     epochs = history_df['epoch']
 
     plt.figure()
@@ -20,7 +20,7 @@ def plot_loss_components(history_df_path, plot_dir):
     plt.tight_layout()
     plt.savefig(os.path.join(plot_dir, 'history.png'))
 
-history_df_path = ''
+history_df_path = '/Users/tkiker/Documents/GitHub/qsoml/results/data-for-plots/history.csv'
 plot_dir = '/Users/tkiker/Documents/GitHub/qsoml/results/plots'
 plot_loss_components(history_df_path=history_df_path, plot_dir=plot_dir)
 
@@ -48,6 +48,6 @@ def plot_rest_frame_spectrum(restframe_df_path, plot_dir):
     plt.savefig(os.path.join(plot_dir, f'{os.path.splitext(os.path.basename(restframe_df_path))[0]}.png'))
     plt.close()
 
-restframe_df_paths = []
-for restframe_df_path in restframe_df_paths: 
-    plot_rest_frame_spectrum(restframe_df_path, plot_dir)
+#restframe_df_paths = []
+#for restframe_df_path in restframe_df_paths: 
+#    plot_rest_frame_spectrum(restframe_df_path, plot_dir)
