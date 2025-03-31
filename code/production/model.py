@@ -196,10 +196,8 @@ def build_encoder(input_shape):
     latent_space = Dense(10, name='latent_space')(x)
     return Model(input_layer, latent_space, name='encoder')
 
-def transform_spectrum(inputs):
-    """
-    Redshift and interpolate rest-frame spectrum to observed frame.
-    """
+"""def transform_spectrum(inputs):
+    #Redshift and interpolate rest-frame spectrum to observed frame.
     rest_spectrum, z = inputs
     z = tf.reshape(z, (-1, 1))  # shape (batch_size, 1)
 
@@ -228,7 +226,44 @@ def transform_spectrum(inputs):
         fn_output_signature=tf.float32
     )
     obs_spectrum = tf.expand_dims(obs_spectrum, axis=-1)  # (batch_size, obs_length, 1)
-    return obs_spectrum
+    return obs_spectrum"""
+
+def transform_spectrum(inputs):
+    """
+    Differentiable redshift and interpolation of rest-frame spectrum to observed frame.
+    """
+    rest_spectrum, z = inputs
+    z = tf.reshape(z, (-1, 1))  # shape (batch_size, 1)
+
+    # Compute shifted observed wavelength grid (rest-frame wavelengths)
+    wave_obs_shifted = tf.expand_dims(wave_obs, axis=0) / (1 + z)  # (batch_size, obs_length)
+
+    # Remove last dimension from rest_spectrum
+    rest_spectrum = tf.squeeze(rest_spectrum, axis=-1)  # (batch_size, rest_length)
+
+    # Differentiable linear interpolation
+    x_min = wave_rest[0]
+    x_max = wave_rest[-1]
+    dx = (x_max - x_min) / (rest_length - 1)
+
+    indices = (wave_obs_shifted - x_min) / dx
+    idx_low = tf.clip_by_value(tf.floor(indices), 0, rest_length - 2)
+    idx_high = idx_low + 1
+    weight_high = indices - idx_low
+    weight_low = 1.0 - weight_high
+
+    idx_low = tf.cast(idx_low, tf.int32)
+    idx_high = tf.cast(idx_high, tf.int32)
+
+    def gather_interp(spectrum, idx_l, idx_h, w_l, w_h):
+        low_vals = tf.gather(spectrum, idx_l, axis=-1, batch_dims=1)
+        high_vals = tf.gather(spectrum, idx_h, axis=-1, batch_dims=1)
+        return w_l * low_vals + w_h * high_vals
+
+    interpolated = gather_interp(rest_spectrum, idx_low, idx_high, weight_low, weight_high)
+    interpolated = tf.expand_dims(interpolated, axis=-1)  # (batch_size, obs_length, 1)
+
+    return interpolated
 
 def build_decoder(latent_dim, rest_length):
     latent_input = Input(shape=(latent_dim,))
@@ -291,7 +326,7 @@ wave_obs = tf.cast(tf.linspace(observed_range[0], observed_range[1], obs_length)
 autoencoder, encoder, decoder, rest_frame_dense = build_autoencoder(input_shape=(obs_length, 1), latent_dim=10)
 decoder_fc = Model([decoder.input[0], decoder.input[1]], rest_frame_dense)
 
-num_epochs = 20
+num_epochs = 50
 batch_size = 128
 z_aug_all = precompute_z_aug(z_train, num_epochs)
 
@@ -317,15 +352,21 @@ def train_step(y_batch, z_batch, z_aug_batch, ivar_batch, sim_loss_weight, extra
         latent_vectors = encoder(y_batch, training=True)
         y_pred = decoder([latent_vectors, z_batch], training=True)
         rest_spectra = decoder_fc([latent_vectors, z_batch], training=True)
-        #tf.print("Rest-frame mean:", tf.reduce_mean(rest_spectra), "; Rest-frame std:", tf.math.reduce_std(rest_spectra))
-        latent_augmented = encoder(decoder([latent_vectors, z_aug_batch], training=True), training=True)
+
+        y_augmented = decoder([latent_vectors, z_aug_batch], training=True)
+        latent_augmented = encoder(y_augmented, training=True)
+
         observed_masks = tf.cast(ivar_batch > 0, tf.float32)  # shape (batch_size, obs_length)
         fid_loss, sim_loss, cons_loss, extrap_loss, total_loss = custom_loss(
             y_batch, y_pred, latent_vectors, latent_augmented, rest_spectra, ivar_batch,
             observed_masks, sim_loss_weight, extrap_loss_weight
         )
-    gradients = tape.gradient(total_loss, autoencoder.trainable_variables)
-    optimizer.apply_gradients(zip(gradients, autoencoder.trainable_variables))
+
+    #gradients = tape.gradient(total_loss, autoencoder.trainable_variables)
+    #non_none = [g is not None for g in gradients]
+    #tf.print("Non-None gradients:", non_none)
+    #optimizer.apply_gradients(zip(gradients, autoencoder.trainable_variables))
+
     return fid_loss, sim_loss, cons_loss, extrap_loss, total_loss
 
 @tf.function
@@ -334,7 +375,10 @@ def val_step(y_batch, z_batch, z_aug_batch, ivar_batch, sim_loss_weight, extrap_
     latent_vectors = encoder(y_batch, training=False)
     y_pred = decoder([latent_vectors, z_batch], training=False)
     rest_spectra = decoder_fc([latent_vectors, z_batch], training=False)
-    latent_augmented = encoder(decoder([latent_vectors, z_aug_batch], training=False), training=False)
+
+    y_augmented = decoder([latent_vectors, z_aug_batch], training=False)
+    latent_augmented = encoder(y_augmented, training=False)
+
     observed_masks = tf.cast(ivar_batch > 0, tf.float32)  # shape (batch_size, obs_length)
     _, _, _, _, loss = custom_loss(
         y_batch, y_pred, latent_vectors, latent_augmented, rest_spectra, ivar_batch,
@@ -420,7 +464,7 @@ for epoch in range(num_epochs):
         best_val_loss = avg_val_loss
         epochs_without_improvement = 0
     else:
-        if epoch > 5: 
+        if epoch > 45: 
             epochs_without_improvement += 1
             if epochs_without_improvement >= patience:
                 print(f"Early stopping at epoch {epoch+1}: no improvement for {patience} epochs.")
