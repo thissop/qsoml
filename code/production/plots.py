@@ -1,6 +1,5 @@
 def plot_loss_components(history_df_path, plot_dir):
     import matplotlib.pyplot as plt 
-    import smplotlib 
     import os 
     import pandas as pd 
 
@@ -11,6 +10,7 @@ def plot_loss_components(history_df_path, plot_dir):
     plt.plot(epochs, history_df["L_fid"], label="Fidelity Loss")
     plt.plot(epochs, history_df["L_sim"], label="Similarity Loss")
     plt.plot(epochs, history_df["L_c"], label="Consistency Loss")
+    plt.plot(epochs, history_df["L_extrap"], label="Extrapolation Loss")
     plt.plot(epochs, history_df["total_loss"], '--', label="Total Loss")
     plt.plot(epochs, history_df["val_loss"], ':', label="Validation Loss")
     plt.xlabel("Epoch")
@@ -18,7 +18,9 @@ def plot_loss_components(history_df_path, plot_dir):
     plt.title("Loss Components Over Epochs")
     plt.legend()
     plt.tight_layout()
+    os.makedirs(plot_dir, exist_ok=True)
     plt.savefig(os.path.join(plot_dir, 'history.png'))
+    plt.close()
 
 history_df_path = '/Users/tkiker/Documents/GitHub/qsoml/results/data-for-plots/history.csv'
 plot_dir = '/Users/tkiker/Documents/GitHub/qsoml/results/plots'
@@ -33,12 +35,11 @@ def plot_rest_frame_spectrum(restframe_df_path, plot_dir):
 
     # Prepare inputs
     restframe_df = pd.read_csv(restframe_df_path)
-    print(restframe_df.columns)
     wave_rest = restframe_df['x']
     rest_spectrum = restframe_df['y']
 
     # Plot
-    plt.figure()
+    plt.figure(figsize=(5, 3))
     plt.plot(wave_rest, rest_spectrum, label='Rest-Frame Reconstruction')
     plt.xlabel('Rest-Frame Wavelength (Å)')
     plt.ylabel('Flux')
@@ -47,9 +48,11 @@ def plot_rest_frame_spectrum(restframe_df_path, plot_dir):
     plt.savefig(os.path.join(plot_dir, f'{os.path.splitext(os.path.basename(restframe_df_path))[0]}.png'))
     plt.close()
 
-restframe_df_paths = ['results/data-for-plots/data-for-plots/restframe_prediction_1.csv', 
-                      'results/data-for-plots/data-for-plots/restframe_prediction_3.csv',
-                      'results/data-for-plots/data-for-plots/restframe_prediction_10.csv']
+restframe_df_paths = ['/Users/tkiker/Documents/GitHub/qsoml/results/data-for-plots/restframe_prediction_1.csv', 
+                      '/Users/tkiker/Documents/GitHub/qsoml/results/data-for-plots/restframe_prediction_3.csv',
+                      '/Users/tkiker/Documents/GitHub/qsoml/results/data-for-plots/restframe_prediction_10.csv', 
+                      '/Users/tkiker/Documents/GitHub/qsoml/results/data-for-plots/restframe_prediction_21.csv']
+
 for restframe_df_path in restframe_df_paths:
     plot_rest_frame_spectrum(restframe_df_path, plot_dir)
 
@@ -64,7 +67,7 @@ def plot_reconstruction(df_path, plot_dir):
     y_real = df['y_test']
     y_predicted = df['y_predicted']
 
-    fig, ax = plt.subplots(figsize=(5, 2))
+    fig, ax = plt.subplots(figsize=(5, 3))
 
     ax.plot(x, y_real, label='Flux', color='black')
     ax.plot(x, y_predicted, label='Reconstructed Flux', color='red')
@@ -75,9 +78,10 @@ def plot_reconstruction(df_path, plot_dir):
     plt.savefig(os.path.join(plot_dir, f'{os.path.splitext(os.path.basename(df_path))[0]}.png'))
     plt.close()
 
-df_paths = ['results/data-for-plots/data-for-plots/test_prediction_1.csv',
-            'results/data-for-plots/data-for-plots/test_prediction_3.csv',
-            'results/data-for-plots/data-for-plots/test_prediction_10.csv']
+df_paths = ['/Users/tkiker/Documents/GitHub/qsoml/results/data-for-plots/reconstruction_1.csv',
+            '/Users/tkiker/Documents/GitHub/qsoml/results/data-for-plots/reconstruction_3.csv',
+            '/Users/tkiker/Documents/GitHub/qsoml/results/data-for-plots/reconstruction_10.csv',
+            '/Users/tkiker/Documents/GitHub/qsoml/results/data-for-plots/reconstruction_21.csv']
 
 for df_path in df_paths:
     plot_reconstruction(df_path, plot_dir)

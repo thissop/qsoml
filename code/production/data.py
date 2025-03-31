@@ -1,213 +1,3 @@
-def copy_downloaded(quasar_key:str, old_dir:str, new_dir:str, z_range:tuple): 
-    import os 
-    from tqdm import tqdm 
-    import pandas as pd 
-    import shutil
-    import numpy as np
-    from astropy.io import fits
-
-    df = pd.read_csv(quasar_key)
-
-    zs, plates, mjds, fiberids = (df[i].to_numpy() for i in list(df))
-    
-    i = 0
-    count = 10000
-    for plate, mjd, fiberid in tqdm(zip(plates, mjds, fiberids)): 
-
-        if i >= count: 
-            break
-        else: 
-            fiberid = (4-len(str(fiberid)))*'0'+str(fiberid)
-            file_name = f'spec-{plate}-{mjd}-{fiberid}.fits'
-            
-            old_path = os.path.join(old_dir, file_name)
-            new_path = os.path.join(new_dir, file_name)
-            if os.path.exists(old_path): 
-                with fits.open(old_path) as hdul:
-                    z = hdul[2].data['z'][0]
-                    if z >= z_range[0] and z<=z_range[1] and i<count:
-                        shutil.copy(old_path, new_path)
-                        i+=1
-
-quasar_key = 'data/quasar_key.csv'
-old_dir = '/Users/tkiker/Documents/GitHub/AGN-UMAP/data/sdss_spectra/'
-new_dir = 'data/small-batch'
-#copy_downloaded(quasar_key, old_dir, new_dir, z_range=[1.5, 2.2])
-
-def check_data_range(data_dir:str):
-    import os 
-    import numpy as np
-    from astropy.io import fits
-    from tqdm import tqdm
-    import matplotlib.pyplot as plt
-    import smplotlib 
-
-    data_min = []
-    data_max = []
-
-    for file in tqdm(os.listdir(data_dir)):
-        if file.endswith('.fits'):
-            with fits.open(os.path.join(data_dir, file)) as hdul:
-                data = hdul[1].data
-                data_min.append(10**np.min(data['loglam']))
-                data_max.append(10**np.max(data['loglam']))
-
-                spectrum_length = len(data['flux'])
-
-    plt.hist(data_min)
-    plt.gca().ticklabel_format(style='plain', axis='both')
-    plt.show()
-
-    return np.max(data_min), np.min(data_max), spectrum_length
-
-#print(check_data_range('data/small-batch'))
-
-def process_data(old_data_dir:str, new_data_dir:str, max_count:int=10000):
-    import os 
-    from astropy.io import fits 
-    import numpy as np
-    from tqdm import tqdm 
-    import pandas as pd
-    from scipy import interpolate
-
-    count = 0
-
-    zs = []
-    spectrum_names = []
-
-    for file in tqdm(os.listdir(old_data_dir)): 
-        file_path = os.path.join(old_data_dir, file)
-
-        try: 
-            with fits.open(file_path) as hdul: 
-                data = hdul[1].data
-                x = 10**data['loglam']
-                model = data['model']
-                flux = data['flux']
-                z = hdul[2].data['z'][0]
-
-                data_min = np.min(x)
-
-                if data_min >= 3590 and data_min <= 3600 and count<=max_count: 
-                    f = interpolate.interp1d(x, model)
-                    x = np.linspace(3600, 10300, 4500)
-                    y = f(x)
-
-                    df = pd.DataFrame()
-                    df['x'] = x 
-                    df['y'] = y 
-
-                    zs.append(z)
-                    spectrum_names.append(file.split('.')[0])
-
-                    df.to_csv(os.path.join(new_data_dir, file.replace('fits', 'csv')), index=False)
-                    count += 1
-
-                if count>=max_count: 
-                    break
-
-                    # Interpolate 
-                    
-                    # In ML Loading: 
-                    # Do Sky Lines
-                    # Divide by Median 
-        except: 
-            continue 
-
-    print('count')
-
-    df = pd.DataFrame()
-    df['name'] = spectrum_names
-    df['z'] = zs
-    df.to_csv(os.path.join(new_dir, 'zkey.csv'), index=False)
-
-#old_dir = 'data/small-batch'
-#new_dir = 'data/csv-batch'
-
-#process_data(old_dir, new_dir)
-
-import os
-from astropy.io import fits
-import numpy as np
-from tqdm import tqdm
-import pandas as pd
-from scipy import interpolate
-
-def process_data_with_ivar(fits_dir: str, csv_dir: str, out_dir: str):
-    import os
-    from astropy.io import fits
-    import numpy as np
-    import pandas as pd
-    from tqdm import tqdm
-    from scipy import interpolate
-    from emission_lines import emissionlines  # <- import emission lines
-
-    window_width = 10  # +/- 10 Å masking window
-
-    csv_files = [f for f in os.listdir(csv_dir) if f.endswith('.csv') and 'spec' in f]
-    target_basenames = [f.replace('.csv', '') for f in csv_files]
-
-    zs = []
-    spectrum_names = []
-
-    os.makedirs(out_dir, exist_ok=True)
-
-    for basename in tqdm(target_basenames):
-        fits_path = os.path.join(fits_dir, basename + '.fits')
-        csv_path = os.path.join(out_dir, basename + '.csv')
-
-        if not os.path.exists(fits_path):
-            print(f"Warning: FITS file not found for {basename}")
-            continue
-
-        try:
-            with fits.open(fits_path) as hdul:
-                data = hdul[1].data
-                x_fits = 10 ** data['loglam']
-                model = data['flux']
-                ivar = data['ivar']
-                z = hdul[2].data['z'][0]
-
-                if np.min(x_fits) < 3590 or np.min(x_fits) > 3600:
-                    continue
-
-                x_new = np.linspace(3600, 10300, 4500)
-                f_model = interpolate.interp1d(x_fits, model, bounds_error=False, fill_value=0.0)
-                f_ivar = interpolate.interp1d(x_fits, ivar, bounds_error=False, fill_value=0.0)
-
-                y_new = f_model(x_new)
-                ivar_new = f_ivar(x_new)
-
-                # Mask ivar around redshifted emission lines
-                for rest_line in emissionlines:
-                    obs_line = rest_line * (1 + z)
-                    mask = np.abs(x_new - obs_line) <= window_width
-                    ivar_new[mask] = 0.0
-
-                df = pd.DataFrame({'x': x_new, 'y': y_new, 'ivar': ivar_new})
-                df.to_csv(csv_path, index=False)
-
-                zs.append(z)
-                spectrum_names.append(basename)
-
-        except Exception as e:
-            print(f"Error processing {basename}: {e}")
-            continue
-
-    # Save zkey
-    zkey_df = pd.DataFrame({'name': spectrum_names, 'z': zs})
-    zkey_df.to_csv(os.path.join(out_dir, 'zkey.csv'), index=False)
-
-    print(f"\nProcessed {len(spectrum_names)} spectra.")
-
-# ==== USAGE ====
-
-fits_dir = '/Users/tkiker/Documents/GitHub/qsoml/data/small-batch'
-csv_dir = '/Users/tkiker/Documents/GitHub/qsoml/data/csv-batch'
-out_dir = '/Users/tkiker/Documents/GitHub/qsoml/data/csv-batch'  # You want to overwrite
-
-process_data_with_ivar(fits_dir, csv_dir, out_dir)
-
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -255,5 +45,106 @@ def plot_spectrum_with_ivar(csv_path, fits_dir):
 # ==== Example usage ====
 csv_sample = '/Users/tkiker/Documents/GitHub/qsoml/data/csv-batch/spec-7746-58074-0638.csv'
 fits_dir = '/Users/tkiker/Documents/GitHub/qsoml/data/small-batch'
+#plot_spectrum_with_ivar(csv_sample, fits_dir)
 
-plot_spectrum_with_ivar(csv_sample, fits_dir)
+def process_fits_to_csv(
+    fits_dir: str,
+    out_dir: str,
+    z_range: list = [1.5, 2.2],
+    wave_grid=(3600, 10300),
+    num_bins=4500,
+    mask_width=5  # ±5 Å telluric mask
+):
+    import os
+    from astropy.io import fits
+    import numpy as np
+    import pandas as pd
+    from tqdm import tqdm
+    from scipy import interpolate
+
+    # Telluric lines list (SDSS standard)
+    telluric_lines = [
+        5577.338, 6300.304, 6363.776, 6867.200, 6870.000, 6884.000, 6900.000,
+        7200.000, 7250.000, 7300.000, 7320.000, 7340.000, 7360.000, 7380.000,
+        7400.000, 7420.000, 7440.000, 7460.000, 7480.000, 7500.000, 7510.000,
+        7605.000, 7620.000, 7640.000, 7660.000, 7680.000, 7700.000, 7720.000,
+        7740.000, 7760.000, 7780.000, 7800.000, 7820.000, 7840.000, 7860.000,
+        7880.000, 7900.000, 8000.000, 8020.000, 8040.000, 8060.000, 8080.000,
+        8100.000, 8120.000, 8140.000, 8160.000, 8180.000, 8200.000, 8220.000
+    ]
+
+    os.makedirs(out_dir, exist_ok=True)
+    x_target = np.linspace(wave_grid[0], wave_grid[1], num_bins)
+
+    processed = 0
+    skipped = 0
+    redshifts = []
+    names = []
+
+    fits_files = [f for f in os.listdir(fits_dir) if f.endswith('.fits')]
+
+    for fname in tqdm(fits_files):
+        try:
+            path = os.path.join(fits_dir, fname)
+            with fits.open(path) as hdul:
+                data = hdul[1].data
+                z = hdul[2].data['z'][0]
+                if not (z_range[0] <= z <= z_range[1]):
+                    skipped += 1
+                    continue
+
+                x_raw = 10 ** data['loglam']
+                flux = data['flux']
+                ivar = data['ivar']
+
+                # Require full coverage of target grid
+                if x_raw[0] > wave_grid[0] or x_raw[-1] < wave_grid[1]:
+                    skipped += 1
+                    continue
+
+                # Interpolate flux and ivar
+                f_flux = interpolate.interp1d(x_raw, flux, bounds_error=False, fill_value=0.0)
+                f_ivar = interpolate.interp1d(x_raw, ivar, bounds_error=False, fill_value=0.0)
+                y_interp = f_flux(x_target)
+                ivar_interp = f_ivar(x_target)
+
+                # Mask bad pixels
+                bad_pixel_mask = ivar_interp == 0.0
+
+                # Mask telluric regions
+                telluric_mask = np.zeros_like(x_target, dtype=bool)
+                for line in telluric_lines:
+                    telluric_mask |= (np.abs(x_target - line) <= mask_width)
+
+                # Combine masks
+                full_mask = bad_pixel_mask | telluric_mask
+                ivar_interp[full_mask] = 0.0
+
+                # Track masked fraction
+                masked_frac = 100 * np.sum(ivar_interp == 0) / len(ivar_interp)
+                if processed % 50 == 0:
+                    print(f"{fname}: Masked {masked_frac:.2f}% of spectrum")
+
+                # Save to CSV
+                out_name = fname.replace('.fits', '.csv')
+                df = pd.DataFrame({'x': x_target, 'y': y_interp, 'ivar': ivar_interp})
+                df.to_csv(os.path.join(out_dir, out_name), index=False)
+
+                redshifts.append(z)
+                names.append(fname.replace('.fits', ''))
+                processed += 1
+
+        except Exception as e:
+            print(f"Skipping {fname} due to error: {e}")
+            skipped += 1
+            continue
+
+    # Save zkey
+    df_key = pd.DataFrame({'name': names, 'z': redshifts})
+    df_key.to_csv(os.path.join(out_dir, 'new_zkey.csv'), index=False)
+
+    print(f"\n✅ Done. Processed: {processed} | Skipped: {skipped} | Total: {processed + skipped}")
+
+fits_dir = '/Users/tkiker/Documents/GitHub/qsoml/data/small-batch'
+csv_dir = 'data/csv-batch'
+process_fits_to_csv(fits_dir, csv_dir)
