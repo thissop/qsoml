@@ -1,9 +1,6 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
-import umap
-import matplotlib.pyplot as plt
-import smplotlib 
 
 tfd = tfp.distributions
 tfb = tfp.bijectors
@@ -57,9 +54,16 @@ def plot_umap(flow, latent_train, z_train):
     plt.show()
 
 # Assuming latent_train is already computed from encoder(y_train)
+
+data = np.load("/burg/home/tjk2147/src/GitHub/qsoml/data/latent_space.npz")
+latent_train = data["latent_train"]
+z_train = data["z_train"]
+
 latent_dim = latent_train.shape[1]
 flow = build_maf_flow(latent_dim)
 
-train_maf(flow, latent_train, n_epochs=2000, batch_size=10000)
+train_maf(flow, latent_train, n_epochs=1, batch_size=128)
 
-plot_umap(flow, latent_train, z_train)
+print('trained MAF')
+
+#plot_umap(flow, latent_train, z_train)
