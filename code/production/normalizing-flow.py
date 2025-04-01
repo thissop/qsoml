@@ -41,7 +41,7 @@ def train_maf(flow, latent_train, n_epochs=2000, batch_size=10000):
         if (epoch + 1) % 100 == 0 or epoch == 0:
             print(f"Epoch {epoch+1}: NLL = {np.mean(epoch_loss):.4f}")
 
-def plot_umap(flow, latent_train, z_train):
+"""def plot_umap(flow, latent_train, z_train):
     z_train_norm = flow.bijector.inverse(latent_train.astype(np.float32)).numpy()
 
     umap_model = umap.UMAP(n_neighbors=15, min_dist=0.1)
@@ -52,7 +52,7 @@ def plot_umap(flow, latent_train, z_train):
     plt.colorbar(label='Redshift')
     plt.title('UMAP of normalized latent space')
     plt.show()
-
+"""
 # Assuming latent_train is already computed from encoder(y_train)
 
 data = np.load("/burg/home/tjk2147/src/GitHub/qsoml/data/latent_space.npz")

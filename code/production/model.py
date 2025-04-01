@@ -24,7 +24,7 @@ CONFIG = {
     "lr_decay_steps": 10,
     "lr_decay_rate": 0.5,
     "batch_size": 128,
-    "num_epochs": 1,
+    "num_epochs":50,
     "patience": 5,
     "delta_z_max": 0.5,
     "sim_loss_weight_schedule": lambda epoch: min(1.0, epoch / 10.0),
@@ -420,7 +420,7 @@ for epoch in range(num_epochs):
         best_val_loss = avg_val_loss
         epochs_without_improvement = 0
     else:
-        if epoch > 45: 
+        if epoch > 25: 
             epochs_without_improvement += 1
             if epochs_without_improvement >= patience:
                 print(f"Early stopping at epoch {epoch+1}: no improvement for {patience} epochs.")
