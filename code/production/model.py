@@ -1,3 +1,4 @@
+import random
 import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
@@ -7,6 +8,10 @@ from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, Input,
 from tensorflow.keras.models import Model
 import time 
 from losses import custom_loss
+import warnings
+warnings.filterwarnings('ignore')
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TF INFO and WARNING logs
+
 
 ### --- CONFIG --- ###
 
@@ -24,11 +29,11 @@ CONFIG = {
     "lr_decay_steps": 10,
     "lr_decay_rate": 0.5,
     "batch_size": 128,
-    "num_epochs":50,
+    "num_epochs":1,
     "patience": 5,
     "delta_z_max": 0.5,
-    "sim_loss_weight_schedule": lambda epoch: min(1.0, epoch / 10.0),
-    "extrap_loss_weight_schedule": lambda epoch: min(1.0, epoch / 10.0),
+    "sim_loss_weight_schedule": lambda epoch: min(1.0, epoch / 3.0),
+    "extrap_loss_weight_schedule": lambda epoch: min(1.0, epoch / 3.0),
     "data_dir": "/burg/home/tjk2147/src/GitHub/qsoml/data/csv-batch",
     "save_dir": "/burg/home/tjk2147/src/GitHub/qsoml/results/data-for-plots",
     "latent_save_dir":"/burg/home/tjk2147/src/GitHub/qsoml/data"
@@ -97,7 +102,7 @@ def load_data(data_dir: str, z_range:list, rest_norm_window:list=[3020, 3100]):
 
     # --- Step 4: Load spectra ---
     Y, zs_sorted, IVARS = [], [], []
-    for file in os.listdir(data_dir)[0:500]:
+    for file in os.listdir(data_dir):
         if file.endswith('.csv') and 'spec' in file:
             name = file.split('.')[0]
             if name in z_map:
@@ -194,26 +199,24 @@ def build_decoder(latent_dim, rest_length):
     x = Dense(1024)(x)
     x = LeakyReLU(alpha=0.01)(x)
 
-    # Rest Frame Dense layer
     rest_frame_dense = Dense(rest_length)(x)
     rest_frame_output = LeakyReLU(alpha=0.01)(rest_frame_dense)
     rest_frame_output = Reshape((rest_length, 1))(rest_frame_output)
 
-    # Back to Observed Frame
-    observed_output = Lambda(transform_spectrum)([rest_frame_output, z])
+    observed_output = Lambda(transform_spectrum, name="obs_transform")([rest_frame_output, z])
 
-    decoder_model = Model([latent_input, z], observed_output, name='decoder')
-    return decoder_model, rest_frame_dense
+    decoder_model = Model([latent_input, z], [rest_frame_output, observed_output], name='decoder')
+    return decoder_model
 
 def build_autoencoder(input_shape, latent_dim=10):
     encoder = build_encoder(input_shape)
-    decoder, rest_frame_dense = build_decoder(latent_dim, rest_length)
+    decoder = build_decoder(latent_dim, rest_length)
     input_layer = Input(shape=input_shape)
     z = Input(shape=(1,), name='z')
     latent_space = encoder(input_layer)
-    reconstructed_output = decoder([latent_space, z])
-    autoencoder = Model([input_layer, z], reconstructed_output, name='autoencoder')
-    return autoencoder, encoder, decoder, rest_frame_dense
+    rest_output, reconstructed_output = decoder([latent_space, z])
+    autoencoder = Model([input_layer, z], [rest_output, reconstructed_output], name='autoencoder')
+    return autoencoder, encoder, decoder
 
 def precompute_z_aug(z_train, num_epochs, z_min=1.5, z_max=2.2, delta_z_max=0.5):
     z_aug_all = []
@@ -223,30 +226,20 @@ def precompute_z_aug(z_train, num_epochs, z_min=1.5, z_max=2.2, delta_z_max=0.5)
     return np.stack(z_aug_all, axis=0)
 
 def compute_restframe_mask_tf(z_batch):
-    """
-    Given a batch of z values, returns a binary mask indicating 
-    which rest-frame pixels would be unobserved.
-    """
-    # z_batch shape: (batch_size, 1)
     z_batch = tf.reshape(z_batch, (-1, 1))
     rest_waves = tf.expand_dims(wave_rest, axis=0)  # (1, rest_length)
     obs_min = CONFIG["observed_range"][0]
     obs_max = CONFIG["observed_range"][1]
-
-    # Compute observed-frame wavelengths for each z
     obs_waves = rest_waves * (1 + z_batch)  # (batch_size, rest_length)
     mask = tf.cast((obs_waves >= obs_min) & (obs_waves <= obs_max), tf.float32)
     return mask  # shape (batch_size, rest_length)
 
 ### --- Main --- ###
 
-observed_range = [3600, 10300]
-z_range = [1.5, 2.2]
-
 start_time = time.time()
 print("Loading and preprocessing data...")
 data_dir = '/burg/home/tjk2147/src/GitHub/qsoml/data/csv-batch'
-y_train, y_test, z_train, z_test, ivar_train, ivar_test = load_data(data_dir, z_range=z_range)
+y_train, y_test, z_train, z_test, ivar_train, ivar_test = load_data(data_dir, z_range=CONFIG["z_range"])
 
 z_train_tensor = tf.convert_to_tensor(z_train, dtype=tf.float32)
 z_test_tensor = tf.convert_to_tensor(z_test, dtype=tf.float32)
@@ -261,13 +254,12 @@ upsample_factor = 2
 rest_length = upsample_factor * obs_length
 
 wave_rest = tf.cast(tf.linspace(wave_rest_min, wave_rest_max, rest_length), dtype=tf.float32)
-wave_obs = tf.cast(tf.linspace(observed_range[0], observed_range[1], obs_length), dtype=tf.float32)
+wave_obs = tf.cast(tf.linspace(CONFIG["observed_range"][0], CONFIG["observed_range"][1], obs_length), dtype=tf.float32)
 
 train_rest_masks = compute_restframe_mask_tf(z_train_tensor)
 test_rest_masks = compute_restframe_mask_tf(z_test_tensor)
 
-autoencoder, encoder, decoder, rest_frame_dense = build_autoencoder(input_shape=(obs_length, 1), latent_dim=10)
-decoder_fc = Model([decoder.input[0], decoder.input[1]], rest_frame_dense)
+autoencoder, encoder, decoder = build_autoencoder(input_shape=(obs_length, 1), latent_dim=10)
 
 print(f"Data loaded and preprocessed in {time.time() - start_time:.2f} seconds")
 
@@ -300,16 +292,14 @@ def train_step(y_batch, z_batch, z_aug_batch, ivar_batch, observed_masks_rest, e
     y_batch = tf.expand_dims(y_batch, axis=-1)
     with tf.GradientTape() as tape:
         latent_vectors = encoder(y_batch, training=True)
-        y_pred = decoder([latent_vectors, z_batch], training=True)
-        rest_spectra = decoder_fc([latent_vectors, z_batch], training=True)
-        y_augmented = decoder([latent_vectors, z_aug_batch], training=True)
+        rest_spectra, _ = decoder([latent_vectors, z_batch], training=True)
+        _, y_augmented = decoder([latent_vectors, z_aug_batch], training=True)
         latent_augmented = encoder(y_augmented, training=True)
 
         fid_loss, sim_loss, cons_loss, extrap_loss, total_loss = custom_loss(
-            y_batch, y_pred, latent_vectors, latent_augmented, rest_spectra, ivar_batch,
-            observed_masks_rest, epoch, extrap_start_epoch=CONFIG["extrap_start_epoch"]
+            y_batch, rest_spectra, latent_vectors, latent_augmented, ivar_batch,
+            observed_masks_rest, z_batch, wave_rest, wave_obs, epoch
         )
-
 
     gradients = tape.gradient(total_loss, autoencoder.trainable_variables)
     optimizer.apply_gradients(zip(gradients, autoencoder.trainable_variables))
@@ -319,14 +309,14 @@ def train_step(y_batch, z_batch, z_aug_batch, ivar_batch, observed_masks_rest, e
 def val_step(y_batch, z_batch, z_aug_batch, ivar_batch, observed_masks_rest, epoch):
     y_batch = tf.expand_dims(y_batch, axis=-1)
     latent_vectors = encoder(y_batch, training=False)
-    y_pred = decoder([latent_vectors, z_batch], training=False)
-    rest_spectra = decoder_fc([latent_vectors, z_batch], training=False)
-    y_augmented = decoder([latent_vectors, z_aug_batch], training=False)
+    rest_spectra, _ = decoder([latent_vectors, z_batch], training=False)
+    _, y_augmented = decoder([latent_vectors, z_aug_batch], training=False)
     latent_augmented = encoder(y_augmented, training=False)
 
     _, _, _, _, loss = custom_loss(
-        y_batch, y_pred, latent_vectors, latent_augmented, rest_spectra, ivar_batch,
-        observed_masks_rest, epoch, extrap_start_epoch=CONFIG["extrap_start_epoch"]
+        y_batch, rest_spectra, latent_vectors, latent_augmented, ivar_batch,
+        observed_masks_rest, z_batch, wave_rest, wave_obs, epoch,
+        extrap_start_epoch=CONFIG["extrap_start_epoch"]
     )
     return loss
 
@@ -368,9 +358,10 @@ for epoch in range(num_epochs):
         z_aug_batch = tf.convert_to_tensor(z_aug_epoch_shuffled[i:i+batch_size], dtype=tf.float32)
         ivar_batch = tf.convert_to_tensor(ivar_train_shuffled[i:i+batch_size], dtype=tf.float32)
 
+        observed_masks_batch = observed_masks_rest_shuffled[i:i+batch_size]
         fid_loss, sim_loss, cons_loss, extrap_loss, total_loss = train_step(
             y_batch, z_batch, z_aug_batch, ivar_batch,
-            observed_masks_rest_shuffled[i:i+batch_size],
+            observed_masks_batch,
             epoch
         )
 
@@ -396,10 +387,10 @@ for epoch in range(num_epochs):
         z_aug_batch_np = sample_z_aug_for_val(z_batch.numpy())
         z_aug_batch = tf.convert_to_tensor(z_aug_batch_np, dtype=tf.float32)
 
-        observed_masks_rest_batch = test_rest_masks[i:i+batch_size]
+        observed_masks_batch = test_rest_masks[i:i+batch_size]
         val_loss = val_step(
             y_batch, z_batch, z_aug_batch, ivar_batch,
-            observed_masks_rest_batch, epoch
+            observed_masks_batch, epoch
         )
 
         val_losses.append(val_loss.numpy())
@@ -420,7 +411,7 @@ for epoch in range(num_epochs):
         best_val_loss = avg_val_loss
         epochs_without_improvement = 0
     else:
-        if epoch > 25: 
+        if epoch > 10: 
             epochs_without_improvement += 1
             if epochs_without_improvement >= patience:
                 print(f"Early stopping at epoch {epoch+1}: no improvement for {patience} epochs.")
@@ -453,7 +444,6 @@ save_loss_history(history)
 def save_rest_frame_data(y_train, z_train, sample_idx, save_dir:str='/burg/home/tjk2147/src/GitHub/qsoml/results/data-for-plots'): 
     import os 
     # Prepare inputs
-
     y_sample = y_train[sample_idx]
     z_sample = z_train[sample_idx]
 
@@ -464,7 +454,8 @@ def save_rest_frame_data(y_train, z_train, sample_idx, save_dir:str='/burg/home/
     latent_vec = encoder(y_input, training=False)
 
     # Get rest-frame spectrum
-    rest_spectrum = decoder_fc([latent_vec, z_input], training=False).numpy().squeeze()
+    rest_spectrum, _ = decoder([latent_vec, z_input], training=False)
+    rest_spectrum = rest_spectrum.numpy().squeeze()
 
     restframe_df = pd.DataFrame()
     restframe_df['x'] = wave_rest
@@ -484,7 +475,9 @@ def save_test_prediction(y_test, z_test, sample_idx, save_dir:str='/burg/home/tj
     z_input = tf.constant([[z_sample]], dtype=tf.float32)
 
     # Reconstruct using autoencoder
-    y_pred = autoencoder([y_input, z_input], training=False).numpy().squeeze()
+    _, y_pred = autoencoder([y_input, z_input], training=False)
+    y_pred = y_pred.numpy().squeeze()
+
 
     # Save to CSV
     predictions_df = pd.DataFrame()
@@ -496,7 +489,7 @@ def save_test_prediction(y_test, z_test, sample_idx, save_dir:str='/burg/home/tj
 
     predictions_df.to_csv(os.path.join(save_dir, f'reconstruction_{sample_idx}.csv'), index=False)
 
-for i in [1, 10, 3, 21]: 
+for i in [random.randint(1, 100) for _ in range(15)]: 
     save_rest_frame_data(y_train, z_train, sample_idx=i)
     save_test_prediction(y_test, z_test, sample_idx=i)
 
@@ -504,7 +497,6 @@ for i in [1, 10, 3, 21]:
 print("Encoding latent space for entire dataset...")
 latent_train = encoder(tf.expand_dims(y_train, axis=-1), training=False).numpy()
 latent_val = encoder(tf.expand_dims(y_test, axis=-1), training=False).numpy()
-
 
 np.savez(
     os.path.join(CONFIG["latent_save_dir"], "latent_space.npz"),
